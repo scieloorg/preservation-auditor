@@ -4,7 +4,7 @@ import hashlib
 import os
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .audit_log import log_event
@@ -97,7 +97,7 @@ class IntegrityAuditor:
 
     def check(self, root: Path) -> tuple[str, list[AuditResult], bool]:
         run_id = str(uuid.uuid4())
-        started = datetime.now(UTC).isoformat()
+        started = datetime.now(timezone.utc).isoformat()
         started_monotonic = time.monotonic()
         self.database.create_run(run_id, "integrity", started)
         log_event(

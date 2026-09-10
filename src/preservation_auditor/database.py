@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -84,7 +84,7 @@ class Database:
                    SET finished_at = ?, status = ?, scan_complete = ?, duration_seconds = ?
                    WHERE run_id = ?""",
                 (
-                    datetime.now(UTC).isoformat(), status, int(scan_complete),
+                    datetime.now(timezone.utc).isoformat(), status, int(scan_complete),
                     duration_seconds, run_id,
                 ),
             )
@@ -99,7 +99,7 @@ class Database:
                    VALUES (?, ?, 'sha256', ?, ?, ?)""",
                 (
                     resource_id, relative_path, checksum, size_bytes,
-                    datetime.now(UTC).isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                 ),
             )
             return cursor.rowcount == 1
@@ -110,7 +110,7 @@ class Database:
         return {row["relative_path"]: row for row in rows}
 
     def save_results(self, run_id: str, results: list[AuditResult]) -> None:
-        checked_at = datetime.now(UTC).isoformat()
+        checked_at = datetime.now(timezone.utc).isoformat()
         values = [
             (
                 run_id, item.control, item.resource_type, item.resource_id,

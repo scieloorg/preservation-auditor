@@ -5,7 +5,7 @@ e expor resultados agregados no formato Prometheus.
 
 ## Requisitos
 
-- Python 3.12 ou superior.
+- Python 3.9 ou superior.
 - Prometheus e Grafana existentes para coleta e visualizacao.
 
 O MVP usa apenas a biblioteca padrao do Python. O SQLite armazena evidencias

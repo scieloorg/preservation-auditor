@@ -4,9 +4,9 @@ import json
 import logging
 import logging.handlers
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional
 
 
 SENSITIVE_FIELDS = {
@@ -48,12 +48,12 @@ def log_event(
     action: str,
     result: str,
     resource: str,
-    resource_id: str | None = None,
-    run_id: str | None = None,
-    extra: dict[str, Any] | None = None,
+    resource_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     entry = {
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "user_id": None,
         "ip_address": None,
         "session_id": None,
