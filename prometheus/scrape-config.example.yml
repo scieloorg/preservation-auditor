@@ -1,0 +1,6 @@
+scrape_configs:
+  - job_name: scielo-preservation
+    scrape_interval: 60s
+    static_configs:
+      - targets:
+          - preservation-auditor.example.internal:9877

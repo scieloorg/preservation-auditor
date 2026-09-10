@@ -1,0 +1,20 @@
+[Unit]
+Description=SciELO Preservation Auditor Prometheus exporter
+After=network.target
+
+[Service]
+Type=simple
+User=preservation-auditor
+Group=preservation-auditor
+EnvironmentFile=/etc/preservation-auditor/environment
+ExecStart=/opt/preservation-auditor/.venv/bin/preservation-auditor serve
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/preservation-auditor /var/log/preservation-auditor
+
+[Install]
+WantedBy=multi-user.target

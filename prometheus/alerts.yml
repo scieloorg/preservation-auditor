@@ -1,0 +1,47 @@
+groups:
+  - name: scielo-preservation-integrity
+    rules:
+      - alert: SciELOPreservationChecksumMismatch
+        expr: scielo_preservation_aips_integrity_changed > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AIP local com checksum divergente"
+          description: "A ultima verificacao encontrou {{ $value }} arquivo(s) alterado(s)."
+
+      - alert: SciELOPreservationFileMissing
+        expr: scielo_preservation_aips_integrity_missing > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Arquivo de AIP ausente"
+          description: "A ultima verificacao nao encontrou {{ $value }} arquivo(s) do baseline."
+
+      - alert: SciELOPreservationScanIncomplete
+        expr: scielo_preservation_scan_complete == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Verificacao de integridade incompleta"
+          description: "A ultima varredura teve erro de leitura ou cobertura incompleta."
+
+      - alert: SciELOPreservationFileWithoutBaseline
+        expr: scielo_preservation_aips_integrity_without_baseline > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Arquivo sem baseline de integridade"
+          description: "Existem {{ $value }} arquivo(s) ainda sem baseline aprovado."
+
+      - alert: SciELOPreservationIntegrityCheckStale
+        expr: time() - scielo_preservation_last_success_timestamp_seconds > 90000
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Verificacao de integridade conforme esta atrasada"
+          description: "Nao existe uma varredura integralmente conforme nas ultimas 25 horas."
