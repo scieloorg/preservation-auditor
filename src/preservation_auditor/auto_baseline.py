@@ -181,6 +181,7 @@ class AutoBaselineJob:
         replicas_config: Path,
         signing_key_env: str,
         max_receipt_age_seconds: int,
+        enforce_receipt_age: bool = True,
     ) -> Dict[str, Any]:
         run_id = str(uuid.uuid4())
         started_at = datetime.now(timezone.utc).isoformat()
@@ -204,7 +205,7 @@ class AutoBaselineJob:
             age_seconds = (datetime.now(timezone.utc) - completed_at).total_seconds()
             if age_seconds < -300:
                 raise AutoBaselineError("receipt_completed_at_in_future")
-            if age_seconds > max_receipt_age_seconds:
+            if enforce_receipt_age and age_seconds > max_receipt_age_seconds:
                 raise AutoBaselineError("receipt_expired")
             already_registered = self.database.baseline_event_exists(receipt.event_id)
 

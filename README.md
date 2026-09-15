@@ -99,8 +99,12 @@ O recibo v2 acrescenta `replica_object_keys`, um objeto com as chaves
 `digitalocean`, `minio` e `wasabi`. Cada valor combina o `relative_path` da
 Location e o `current_path` da replica; isso preserva os UUIDs diferentes usados
 pelo Archivematica. Todo o mapa e coberto pela assinatura HMAC. Recibos v1
-continuam aceitos. A data de conclusao e a maior `stored_date` do conjunto;
-tentativas nao renovam essa data nem contornam a validade do recibo.
+continuam aceitos. A data de conclusao e a maior `stored_date` do conjunto. O
+comando manual `baseline-auto` continua recusando recibos expirados. O coletor
+instalado dispensa somente essa verificacao temporal porque, em cada tentativa,
+rele o estado atual no Storage Service e refaz as validacoes do arquivo local e
+das tres replicas. Assim, uma indisponibilidade prolongada do coletor nao deixa
+AIPs permanentemente pendentes.
 
 Os recibos sao publicados atomicamente em
 `/var/lib/preservation-auditor/inbox/archivematica-<UUID_DO_AIP>.json`, sem
@@ -117,6 +121,8 @@ Instalacao nesta distribuicao:
    O bind do systemd usa esse logging somente no coletor.
 3. Grave `PRESERVATION_ARCHIVEMATICA_SINCE=<instante-da-ativacao-com-fuso>`
    em `/etc/preservation-auditor/archivematica.environment` (root, modo 0600).
+   Nesse mesmo arquivo, sobrescreva as credenciais do banco com um usuario
+   dedicado que tenha apenas permissao `SELECT` no banco do Storage Service.
 4. Confira os buckets reais em `replicas.json`, as credenciais e a chave HMAC
    em `/etc/preservation-auditor/environment`.
 5. Execute `systemctl daemon-reload`, depois

@@ -4,7 +4,7 @@ import hashlib
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -88,6 +88,15 @@ class ArchivematicaTests(unittest.TestCase):
         with self.assertRaisesRegex(AutoBaselineError, "replicas_not_complete"):
             self.receipt()
 
+    def test_empty_storage_bucket_uses_space_uuid(self):
+        replica = self.replicas[0]
+        replica.current_location.space.uuid = self.targets[0].bucket
+        replica.current_location.space.s3.bucket_name = ""
+
+        receipt = self.receipt()
+
+        self.assertIn(self.targets[0].name, receipt["replica_object_keys"])
+
     def test_wrong_storage_checksum_rejected(self):
         self.replicas[0].checksum = "0" * 64
         with self.assertRaisesRegex(AutoBaselineError, "replica_storage_checksum_mismatch"):
@@ -153,6 +162,48 @@ class ArchivematicaTests(unittest.TestCase):
         with database.connect() as connection:
             rows = connection.execute("SELECT object_key FROM replica_verifications").fetchall()
         self.assertEqual({r[0] for r in rows}, set(self.receipt()["replica_object_keys"].values()))
+
+    def test_collector_registers_completed_aip_after_long_outage(self):
+        aip_root = self.root / "aips"
+        aip_root.mkdir()
+        local = aip_root / "original.7z"
+        local.write_bytes(b"aip")
+        self.package.full_path = str(local)
+        old_completion = self.now - timedelta(days=8)
+        self.package.stored_date = old_completion
+        for replica in self.replicas:
+            replica.stored_date = old_completion
+        state = self.root / "state"
+        state.mkdir()
+        (state / "inbox").mkdir()
+        database = Database(state / "audit.db")
+        clients = {target.name: Mock() for target in self.targets}
+        for client in clients.values():
+            client.head_object.return_value = {"ContentLength": 3, "Metadata": {}}
+
+        def verifier(targets, **kwargs):
+            return verify_replicas(
+                targets,
+                **kwargs,
+                client_factory=lambda target: clients[target.name],
+            )
+
+        def job(db, logger):
+            return AutoBaselineJob(db, logger, replica_verifier=verifier)
+
+        with patch.dict(
+            "os.environ", {"PRESERVATION_RECEIPT_HMAC_KEY": SIGNING_KEY.decode()}
+        ), patch(
+            "preservation_auditor.archivematica.AutoBaselineJob", side_effect=job
+        ):
+            result = collect(
+                [self.package], state=state, root=aip_root, targets=self.targets,
+                config=self.root / "replicas.json", database=database,
+                logger=logging.getLogger("collector-outage-test"), max_age=60,
+            )
+
+        self.assertEqual(result["registered"], 1)
+        self.assertEqual(result["failed"], 0)
 
     def test_v2_requires_all_replica_keys(self):
         raw = self.receipt()

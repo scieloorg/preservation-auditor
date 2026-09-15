@@ -45,9 +45,12 @@ def package_receipt(package, targets, root: Path, signing_key: bytes) -> dict:
         if space.access_protocol != "S3":
             continue
         s3 = space.s3
+        # Archivematica uses the Space UUID as the physical bucket name when
+        # the optional S3 bucket field is empty.
+        storage_bucket = s3.bucket_name or str(space.uuid)
         matches = [t for t in targets
                    if t.endpoint_url.rstrip("/") == s3.endpoint_url.rstrip("/")
-                   and t.bucket == s3.bucket_name]
+                   and t.bucket == storage_bucket]
         if not matches:
             continue
         if replica.status != "UPLOADED":
@@ -131,6 +134,7 @@ def collect(packages, *, state: Path, root: Path, targets, config: Path,
                 receipt_path=receipt_path, aip_root=root, replicas_config=config,
                 signing_key_env="PRESERVATION_RECEIPT_HMAC_KEY",
                 max_receipt_age_seconds=max_age,
+                enforce_receipt_age=False,
             )
             summary["registered"] += int(result["baseline_created"])
             if not result["integrity_conforming"]:
