@@ -16,6 +16,7 @@ from .audit_log import log_event
 from .database import Database
 from .integrity import IntegrityAuditor, hash_file, resource_id
 from .replicas import (
+    REQUIRED_REPLICAS,
     ReplicaEvidence,
     ReplicaVerificationError,
     load_replica_targets,
@@ -61,6 +62,7 @@ class ArchivematicaReceipt:
     checksum: str
     size_bytes: int
     completed_at: str
+    replica_object_keys: Optional[Dict[str, str]] = None
 
 
 def _canonical_payload(raw: Dict[str, Any]) -> bytes:
@@ -79,7 +81,9 @@ def load_signed_receipt(path: Path, signing_key: bytes) -> ArchivematicaReceipt:
         raise AutoBaselineError("invalid_receipt") from error
     if not isinstance(raw, dict):
         raise AutoBaselineError("invalid_receipt")
-    if set(raw) != RECEIPT_FIELDS or raw.get("schema_version") != 1:
+    version = raw.get("schema_version")
+    fields = RECEIPT_FIELDS | ({"replica_object_keys"} if version == 2 else set())
+    if type(version) is not int or version not in (1, 2) or set(raw) != fields:
         raise AutoBaselineError("unsupported_receipt_schema")
     string_fields = RECEIPT_FIELDS - {"schema_version", "size_bytes"}
     if any(not isinstance(raw.get(field), str) for field in string_fields):
@@ -105,9 +109,17 @@ def load_signed_receipt(path: Path, signing_key: bytes) -> ArchivematicaReceipt:
             checksum=str(raw["checksum"]).lower(),
             size_bytes=raw["size_bytes"],
             completed_at=str(raw["completed_at"]),
+            replica_object_keys=raw.get("replica_object_keys"),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise AutoBaselineError("invalid_receipt_fields") from error
+    if version == 2:
+        keys = receipt.replica_object_keys
+        if not isinstance(keys, dict) or set(keys) != REQUIRED_REPLICAS:
+            raise AutoBaselineError("invalid_replica_object_keys")
+        if any(not isinstance(key, str) or not key or len(key.encode("utf-8")) > 1024
+               or any(ord(c) < 32 for c in key) for key in keys.values()):
+            raise AutoBaselineError("invalid_replica_object_keys")
     _validate_receipt(receipt)
     return receipt
 
@@ -169,6 +181,7 @@ class AutoBaselineJob:
         replicas_config: Path,
         signing_key_env: str,
         max_receipt_age_seconds: int,
+        enforce_receipt_age: bool = True,
     ) -> Dict[str, Any]:
         run_id = str(uuid.uuid4())
         started_at = datetime.now(timezone.utc).isoformat()
@@ -192,7 +205,7 @@ class AutoBaselineJob:
             age_seconds = (datetime.now(timezone.utc) - completed_at).total_seconds()
             if age_seconds < -300:
                 raise AutoBaselineError("receipt_completed_at_in_future")
-            if age_seconds > max_receipt_age_seconds:
+            if enforce_receipt_age and age_seconds > max_receipt_age_seconds:
                 raise AutoBaselineError("receipt_expired")
             already_registered = self.database.baseline_event_exists(receipt.event_id)
 
@@ -223,6 +236,8 @@ class AutoBaselineJob:
                 object_key=receipt.object_key,
                 expected_size=receipt.size_bytes,
                 expected_checksum=receipt.checksum,
+                **({"object_keys": receipt.replica_object_keys}
+                   if receipt.replica_object_keys is not None else {}),
             )
             rid = resource_id(receipt.relative_path)
             if already_registered:

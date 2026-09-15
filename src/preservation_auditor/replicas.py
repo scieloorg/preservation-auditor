@@ -273,12 +273,16 @@ def verify_replicas(
     expected_size: int,
     expected_checksum: str,
     client_factory: Callable[[ReplicaTarget], Any] = create_s3_client,
+    object_keys: Optional[Dict[str, str]] = None,
 ) -> List[ReplicaEvidence]:
     evidence: List[ReplicaEvidence] = []
+    if object_keys is not None and set(object_keys) != {t.name for t in targets}:
+        raise ReplicaVerificationError("invalid_replica_object_keys")
     for target in targets:
+        key = object_keys[target.name] if object_keys is not None else object_key
         try:
             response = client_factory(target).head_object(
-                Bucket=target.bucket, Key=object_key
+                Bucket=target.bucket, Key=key
             )
         except Exception as error:
             raise ReplicaVerificationError(
@@ -308,7 +312,7 @@ def verify_replicas(
         evidence.append(ReplicaEvidence(
             name=target.name,
             bucket=target.bucket,
-            object_key=object_key,
+            object_key=key,
             size_bytes=size,
             checksum_verified=remote_checksum is not None,
         ))

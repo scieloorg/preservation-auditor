@@ -170,6 +170,18 @@ class AutoBaselineTests(unittest.TestCase):
             self.run_job()
         self.assertEqual({}, self.database.baselines())
 
+    def test_manual_job_rejects_expired_receipt(self) -> None:
+        self.receipt_path.write_text(
+            json.dumps(
+                signed_receipt(completed_at="2020-01-01T00:00:00+00:00")
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(AutoBaselineError, "receipt_expired"):
+            self.run_job()
+        self.assertEqual({}, self.database.baselines())
+
     def test_replica_failure_never_creates_baseline(self) -> None:
         def fail_verification(*_args, **_kwargs):
             raise ReplicaVerificationError("replica_head_failed:minio")

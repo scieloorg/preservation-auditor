@@ -75,6 +75,75 @@ Recibos repetidos sao idempotentes: nao sobrescrevem nem duplicam o baseline, ma
 refazem a validacao remota e o check local. Recibos expirados, com caminho fora do
 AIP root, symlink, checksum divergente ou replica indisponivel nao criam baseline.
 
+## Integracao instalada com o Archivematica
+
+O coletor `preservation_auditor.archivematica` consulta os modelos Django do
+Storage Service em uma conexao somente de leitura. O timer
+`preservation-auditor-archivematica.timer` executa uma nova consulta um minuto
+apos o termino da anterior. Nao depende de entrega de callbacks HTTP: falhas ou
+replicas em STAGING permanecem pendentes para a proxima consulta.
+
+Somente AIPs originais locais (FS), UPLOADED e com `stored_date` a partir de
+`PRESERVATION_ARCHIVEMATICA_SINCE` sao considerados. Esse instante, com fuso
+horario ISO 8601, deve ser fixado na ativacao, em
+`/etc/preservation-auditor/archivematica.environment`. Alterar esse marco para
+uma data passada inclui ingestoes historicas e exige planejamento do backfill.
+
+O coletor exige tres replicas UPLOADED, com tamanho e SHA-256 iguais aos
+registrados para o original. Endpoint e bucket devem corresponder ao
+`replicas.json`. No Storage Service, bucket S3 vazio significa usar o UUID do
+Space como nome do bucket. O coletor usa o checksum do Storage Service; o
+baseline-auto verifica o arquivo local contra esse valor.
+
+O recibo v2 acrescenta `replica_object_keys`, um objeto com as chaves
+`digitalocean`, `minio` e `wasabi`. Cada valor combina o `relative_path` da
+Location e o `current_path` da replica; isso preserva os UUIDs diferentes usados
+pelo Archivematica. Todo o mapa e coberto pela assinatura HMAC. Recibos v1
+continuam aceitos. A data de conclusao e a maior `stored_date` do conjunto. O
+comando manual `baseline-auto` continua recusando recibos expirados. O coletor
+instalado dispensa somente essa verificacao temporal porque, em cada tentativa,
+rele o estado atual no Storage Service e refaz as validacoes do arquivo local e
+das tres replicas. Assim, uma indisponibilidade prolongada do coletor nao deixa
+AIPs permanentemente pendentes.
+
+Os recibos sao publicados atomicamente em
+`/var/lib/preservation-auditor/inbox/archivematica-<UUID_DO_AIP>.json`, sem
+sobrescrever eventos. O coletor chama diretamente o mesmo fluxo de
+`baseline-auto`; eventos ja registrados sao ignorados. O timer de integridade
+continua responsavel pelas verificacoes recorrentes. Erros de replica ou
+validade ficam no journal e fazem a execucao terminar com codigo 2.
+
+Instalacao nesta distribuicao:
+
+1. Instale as unidades `systemd/preservation-auditor-archivematica.*` em
+   `/etc/systemd/system/`.
+2. Copie `config/archivematica-logging.json` para `/etc/preservation-auditor/`.
+   O bind do systemd usa esse logging somente no coletor.
+3. Grave `PRESERVATION_ARCHIVEMATICA_SINCE=<instante-da-ativacao-com-fuso>`
+   em `/etc/preservation-auditor/archivematica.environment` (root, modo 0600).
+   Nesse mesmo arquivo, sobrescreva as credenciais do banco com um usuario
+   dedicado que tenha apenas permissao `SELECT` no banco do Storage Service.
+4. Confira os buckets reais em `replicas.json`, as credenciais e a chave HMAC
+   em `/etc/preservation-auditor/environment`.
+5. Execute `systemctl daemon-reload`, depois
+   `systemctl start preservation-auditor-archivematica.service` e
+   `systemctl enable --now preservation-auditor-archivematica.timer`.
+
+O servico usa o Python do Storage Service, seu EnvironmentFile e o codigo do
+auditor via PYTHONPATH. Nao executa migracoes nem modifica os pacotes.
+Para acompanhar:
+
+```bash
+systemctl list-timers preservation-auditor-archivematica.timer
+journalctl -u preservation-auditor-archivematica.service -n 50 --no-pager
+```
+
+Para repetir manualmente um recibo ja emitido:
+
+```bash
+systemctl start preservation-auditor-baseline-auto@archivematica-UUID_DO_AIP.service
+```
+
 ## Verificar integridade
 
 ```bash
