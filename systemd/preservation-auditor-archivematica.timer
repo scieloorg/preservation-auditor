@@ -1,0 +1,10 @@
+[Unit]
+Description=Discover completed Archivematica AIPs every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+Unit=preservation-auditor-archivematica.service
+
+[Install]
+WantedBy=timers.target

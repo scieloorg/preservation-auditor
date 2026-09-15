@@ -1,0 +1,30 @@
+[Unit]
+Description=SciELO baseline integration with Archivematica Storage Service
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=preservation-auditor
+Group=preservation-auditor
+EnvironmentFile=/etc/sysconfig/archivematica-storage-service
+EnvironmentFile=/etc/preservation-auditor/environment
+EnvironmentFile=/etc/preservation-auditor/archivematica.environment
+Environment=PYTHONPATH=/opt/preservation-auditor/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/share/archivematica/virtualenvs/archivematica-storage-service/bin/python -m preservation_auditor.archivematica
+TimeoutStartSec=infinity
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/preservation-auditor /var/log/preservation-auditor
+
+BindReadOnlyPaths=/etc/preservation-auditor/archivematica-logging.json:/etc/archivematica/storageService.logging.json
