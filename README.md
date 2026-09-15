@@ -230,6 +230,47 @@ Os resultados detalhados ficam no SQLite e no log de auditoria; os agregados
 `scielo_preservation_bagits_*` sao publicados pelo exporter para Prometheus e
 Grafana.
 
+## Avaliar obsolescencia dos formatos
+
+O comando `check-obsolescence` executa o Siegfried sobre o repositorio Dataverse,
+incluindo o conteudo dos ZIPs, e avalia somente arquivos localizados em `data/` de
+cada BagIt. Metadados, manifestos e o ZIP externo nao entram no inventario de
+formatos do payload:
+
+```bash
+preservation-auditor check-obsolescence \
+  /var/archivematica/sharedDirectory/transferSource/dataverse/dataverse \
+  --policy /etc/preservation-auditor/format-policy.json
+```
+
+Para validar a integracao usando um relatorio Siegfried JSON existente, sem executar
+uma nova varredura:
+
+```bash
+preservation-auditor check-obsolescence \
+  /var/archivematica/sharedDirectory/transferSource/dataverse/dataverse \
+  --policy /etc/preservation-auditor/format-policy.json \
+  --report /caminho/relatorio-siegfried.json
+```
+
+A politica versionada combina PUID e extensao para evitar ambiguidades. Risco
+`minimal` ou `low` resulta em `PASS`, `medium` em `WARNING` e `high` ou `critical`
+em `FAIL`. Formato identificado sem regra recebe `FORMAT_UNCLASSIFIED`; formato
+nao identificado recebe `UNKNOWN`. O modulo apenas inventaria e classifica: nunca
+converte, renomeia ou modifica o arquivo preservado.
+
+Copie `config/format-policy.json` para `/etc/preservation-auditor/`, configure
+`PRESERVATION_FORMAT_POLICY` e `PRESERVATION_SIEGFRIED_BIN` no arquivo de ambiente,
+instale as unidades `preservation-auditor-obsolescence.service` e `.timer` e habilite:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now preservation-auditor-obsolescence.timer
+```
+
+O timer executa mensalmente no dia 7, as 05:00, com atraso aleatorio de ate 30
+minutos. Os agregados sao expostos como `scielo_preservation_formats_*`.
+
 ## Expor metricas
 
 ```bash
@@ -267,7 +308,8 @@ Antes de instala-los:
    `/var/log/preservation-auditor`;
 5. copie as unidades para `/etc/systemd/system`, recarregue o systemd e habilite
    `preservation-auditor-check.timer`, `preservation-auditor-replicas.timer`,
-   `preservation-auditor-bagits.timer` e `preservation-auditor-exporter.service`.
+   `preservation-auditor-bagits.timer`, `preservation-auditor-obsolescence.timer`
+   e `preservation-auditor-exporter.service`.
 
 Depois que o hook do Archivematica gravar atomicamente um recibo assinado em
 `/var/lib/preservation-auditor/inbox/`, ele pode iniciar a unidade usando somente o
@@ -291,8 +333,8 @@ replicas dos AIPs gerados pelo Archivematica. Os proximos coletores devem reutil
 o mesmo modelo de execucao, evidencia e metricas:
 
 1. resolucao dos DOIs e campos minimos das landing pages do `data.scielo.org`;
-2. validacao estrutural dos pacotes BagIt exportados pelo Dataverse;
-3. identificacao de formatos obsoletos ou em risco.
+2. ampliacao e governanca da politica versionada de formatos de preservacao;
+3. planejamento assistido de migracoes, sempre preservando o original.
 
 ## Testes
 

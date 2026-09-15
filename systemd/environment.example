@@ -1,5 +1,7 @@
 PRESERVATION_AIP_ROOT=/var/archivematica/sharedDirectory/www/AIPsStore
 PRESERVATION_BAGIT_ROOT=/var/archivematica/sharedDirectory/transferSource/dataverse/dataverse
+PRESERVATION_FORMAT_POLICY=/etc/preservation-auditor/format-policy.json
+PRESERVATION_SIEGFRIED_BIN=/usr/local/bin/sf
 PRESERVATION_DB_PATH=/var/lib/preservation-auditor/audit.db
 PRESERVATION_AUDIT_LOG=/var/log/preservation-auditor/audit.log
 PRESERVATION_LISTEN_HOST=127.0.0.1

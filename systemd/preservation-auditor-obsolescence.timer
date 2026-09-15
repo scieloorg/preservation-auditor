@@ -1,0 +1,12 @@
+[Unit]
+Description=Run SciELO Preservation Auditor format check monthly
+
+[Timer]
+OnCalendar=*-*-07 05:00:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=preservation-auditor-obsolescence.service
+
+[Install]
+WantedBy=timers.target
+

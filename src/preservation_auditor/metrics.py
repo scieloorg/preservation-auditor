@@ -55,6 +55,22 @@ BAGIT_METRIC_HELP = {
     "last_success_timestamp_seconds": "Timestamp da ultima auditoria BagIt conforme.",
 }
 
+OBSOLESCENCE_METRIC_HELP = {
+    "total": "Arquivos de payload avaliados quanto a obsolescencia.",
+    "pass": "Arquivos em formatos classificados como baixo ou minimo risco.",
+    "warnings": "Arquivos com risco medio, classificacao ausente ou identificacao fraca.",
+    "medium_risk": "Arquivos em formatos classificados como risco medio.",
+    "high_risk": "Arquivos em formatos classificados como alto risco.",
+    "critical_risk": "Arquivos em formatos classificados como risco critico.",
+    "unclassified": "Arquivos identificados sem regra na politica vigente.",
+    "unknown": "Arquivos cujo formato nao foi identificado.",
+    "scan_complete": "Indica se todos os payloads foram identificados.",
+    "last_run_ok": "Indica se a ultima auditoria nao encontrou risco alto ou critico.",
+    "last_run_timestamp_seconds": "Timestamp da ultima auditoria de formatos.",
+    "last_run_duration_seconds": "Duracao da ultima auditoria de formatos.",
+    "last_success_timestamp_seconds": "Timestamp da ultima auditoria sem risco alto ou critico.",
+}
+
 
 def render_metrics(database: Database) -> str:
     values = database.latest_integrity_metrics()
@@ -92,6 +108,13 @@ def render_metrics(database: Database) -> str:
         metric = f"scielo_preservation_bagits_{key}"
         lines.extend((
             f"# HELP {metric} {BAGIT_METRIC_HELP[key]}",
+            f"# TYPE {metric} gauge",
+            f"{metric} {value}",
+        ))
+    for key, value in database.latest_obsolescence_metrics().items():
+        metric = f"scielo_preservation_formats_{key}"
+        lines.extend((
+            f"# HELP {metric} {OBSOLESCENCE_METRIC_HELP[key]}",
             f"# TYPE {metric} gauge",
             f"{metric} {value}",
         ))
