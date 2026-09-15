@@ -17,8 +17,10 @@ from .integrity import resource_id
 from .models import AuditResult, Status
 
 
-SUPPORTED_VERSIONS = {"0.96", "0.97"}
-SUPPORTED_ALGORITHMS = {"sha256": 64, "sha512": 128}
+SUPPORTED_VERSIONS = {"0.96", "0.97", "1.0"}
+STRONG_ALGORITHMS = {"sha256": 64, "sha512": 128}
+LEGACY_ALGORITHMS = {"md5": 32}
+SUPPORTED_ALGORITHMS = {**STRONG_ALGORITHMS, **LEGACY_ALGORITHMS}
 MANIFEST_PATTERN = re.compile(r"^(tag)?manifest-([a-z0-9]+)\.txt$")
 MAX_TEXT_FILE_BYTES = 16 * 1024 * 1024
 MAX_ZIP_ENTRIES = 1_000_000
@@ -105,12 +107,13 @@ class ZipBag:
             if len(infos) > MAX_ZIP_ENTRIES:
                 raise BagReadError("BAG_ZIP_TOO_MANY_ENTRIES")
             names: set[str] = set()
-            seen: set[str] = set()
+            seen_files: set[str] = set()
             for info in infos:
-                if info.filename in seen:
-                    raise BagReadError("BAG_ZIP_DUPLICATE_ENTRY")
-                seen.add(info.filename)
                 _validate_relative_path(info.filename.rstrip("/"))
+                if not info.is_dir() and info.filename in seen_files:
+                    raise BagReadError("BAG_ZIP_DUPLICATE_ENTRY")
+                if not info.is_dir():
+                    seen_files.add(info.filename)
                 if info.flag_bits & 0x1:
                     raise BagReadError("BAG_ZIP_ENCRYPTED_ENTRY")
                 compressed = max(info.compress_size, 1)
@@ -142,7 +145,6 @@ def _validate_relative_path(value: str) -> None:
         or "\\" in value
         or ".." in path.parts
         or "." in path.parts
-        or any(not part for part in value.split("/"))
     ):
         raise BagReadError("BAG_UNSAFE_PATH")
 
@@ -157,14 +159,24 @@ def _read_text(reader: BagReader, name: str, encoding: str = "utf-8") -> str:
         raise BagReadError("BAG_METADATA_READ_ERROR") from error
 
 
-def _parse_tag_file(text: str) -> dict[str, list[str]]:
+def _parse_tag_file(
+    text: str, *, tolerate_nonstandard_continuation: bool = False
+) -> tuple[dict[str, list[str]], bool]:
     fields: dict[str, list[str]] = {}
     current: str | None = None
+    nonstandard = False
     for raw_line in text.splitlines():
+        if not raw_line.strip() and tolerate_nonstandard_continuation and current:
+            nonstandard = True
+            continue
         if raw_line.startswith((" ", "\t")) and current:
             fields[current][-1] += " " + raw_line.strip()
             continue
         if ":" not in raw_line:
+            if tolerate_nonstandard_continuation and current and raw_line.strip():
+                fields[current][-1] += " " + raw_line.strip()
+                nonstandard = True
+                continue
             raise BagReadError("BAG_INVALID_TAG_FILE")
         name, value = raw_line.split(":", 1)
         name = name.strip()
@@ -172,7 +184,7 @@ def _parse_tag_file(text: str) -> dict[str, list[str]]:
             raise BagReadError("BAG_INVALID_TAG_FILE")
         fields.setdefault(name, []).append(value.strip())
         current = name
-    return fields
+    return fields, nonstandard
 
 
 def _parse_manifest(text: str, digest_length: int) -> dict[str, str]:
@@ -195,7 +207,11 @@ def _parse_manifest(text: str, digest_length: int) -> dict[str, str]:
 
 
 def _digest(reader: BagReader, name: str, algorithm: str) -> str:
-    digest = hashlib.new(algorithm)
+    digest = (
+        hashlib.md5(usedforsecurity=False)  # noqa: S324 - legacy BagIt verification
+        if algorithm == "md5"
+        else hashlib.new(algorithm)
+    )
     try:
         with reader.open(name) as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -207,21 +223,29 @@ def _digest(reader: BagReader, name: str, algorithm: str) -> str:
 
 def validate_bag(reader: BagReader) -> AuditResult:
     errors: set[str] = set()
+    warnings: set[str] = set()
     evidence = {"bag": reader.locator, "payload_files": 0, "payload_bytes": 0}
     try:
         files = reader.files()
+        if any("//" in name for name in files):
+            warnings.add("BAG_NONCANONICAL_PATH")
         required = {"bagit.txt", "bag-info.txt"}
         if not required <= files:
             errors.add("BAG_REQUIRED_TAG_MISSING")
         if "bagit.txt" in files:
-            tags = _parse_tag_file(_read_text(reader, "bagit.txt", "ascii"))
+            tags, _ = _parse_tag_file(_read_text(reader, "bagit.txt", "ascii"))
             if tags.get("BagIt-Version", [None])[-1] not in SUPPORTED_VERSIONS:
                 errors.add("BAG_UNSUPPORTED_VERSION")
             encoding = tags.get("Tag-File-Character-Encoding", [None])[-1]
             if not isinstance(encoding, str) or encoding.upper() != "UTF-8":
                 errors.add("BAG_INVALID_ENCODING")
         if "bag-info.txt" in files:
-            _parse_tag_file(_read_text(reader, "bag-info.txt"))
+            _, nonstandard = _parse_tag_file(
+                _read_text(reader, "bag-info.txt"),
+                tolerate_nonstandard_continuation=True,
+            )
+            if nonstandard:
+                warnings.add("BAG_NONSTANDARD_TAG_CONTINUATION")
 
         payload_manifests: dict[str, str] = {}
         tag_manifests: dict[str, str] = {}
@@ -234,15 +258,25 @@ def validate_bag(reader: BagReader) -> AuditResult:
             if algorithm not in SUPPORTED_ALGORITHMS:
                 weak_algorithms.add(algorithm)
                 continue
+            if algorithm in LEGACY_ALGORITHMS:
+                weak_algorithms.add(algorithm)
             target = tag_manifests if match.group(1) else payload_manifests
             target[algorithm] = name
         if weak_algorithms:
-            errors.add("BAG_WEAK_MANIFEST_ALGORITHM")
+            warnings.add("BAG_WEAK_MANIFEST_ALGORITHM")
             evidence["weak_algorithms"] = sorted(weak_algorithms)
         if not payload_manifests:
-            errors.add("BAG_STRONG_MANIFEST_MISSING")
+            errors.add("BAG_SUPPORTED_MANIFEST_MISSING")
         else:
-            algorithm = "sha512" if "sha512" in payload_manifests else "sha256"
+            algorithm = next(
+                item for item in ("sha512", "sha256", "md5")
+                if item in payload_manifests
+            )
+            if algorithm in LEGACY_ALGORITHMS:
+                warnings.update({
+                    "BAG_WEAK_MANIFEST_ALGORITHM",
+                    "BAG_STRONG_MANIFEST_MISSING",
+                })
             entries = _parse_manifest(
                 _read_text(reader, payload_manifests[algorithm]),
                 SUPPORTED_ALGORITHMS[algorithm],
@@ -277,10 +311,12 @@ def validate_bag(reader: BagReader) -> AuditResult:
             Status.UNKNOWN, "HIGH", evidence, "BAG_READ_ERROR",
         )
     evidence["errors"] = sorted(errors)
+    evidence["warnings"] = sorted(warnings)
+    status = Status.FAIL if errors else Status.WARNING if warnings else Status.PASS
     return AuditResult(
         "bagit.structural_integrity", "bag", resource_id(reader.locator),
-        Status.PASS if not errors else Status.FAIL, "HIGH", evidence,
-        None if not errors else sorted(errors)[0],
+        status, "HIGH" if errors else "MEDIUM" if warnings else "LOW", evidence,
+        sorted(errors)[0] if errors else sorted(warnings)[0] if warnings else None,
     )
 
 
@@ -327,9 +363,14 @@ class BagItAuditor:
             results = [validate_bag(reader) for reader in discover_bags(root)]
             scan_complete = all(item.status != Status.UNKNOWN for item in results)
             self.database.save_results(run_id, results)
-            status = "PASS" if results and scan_complete and all(
-                item.status == Status.PASS for item in results
-            ) else "FAIL"
+            conforming = results and scan_complete and all(
+                item.status in {Status.PASS, Status.WARNING} for item in results
+            )
+            status = (
+                "FAIL" if not conforming else
+                "WARNING" if any(item.status == Status.WARNING for item in results)
+                else "PASS"
+            )
             self.database.finish_run(
                 run_id, status=status, scan_complete=scan_complete,
                 duration_seconds=time.monotonic() - started_monotonic,
@@ -340,6 +381,7 @@ class BagItAuditor:
                 extra={
                     "records_processed": len(results),
                     "valid": sum(item.status == Status.PASS for item in results),
+                    "warnings": sum(item.status == Status.WARNING for item in results),
                     "invalid": sum(item.status == Status.FAIL for item in results),
                     "unknown": sum(item.status == Status.UNKNOWN for item in results),
                     "scan_complete": scan_complete,

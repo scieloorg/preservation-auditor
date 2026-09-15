@@ -401,7 +401,7 @@ class Database:
             ).fetchone()
             last_success = connection.execute(
                 """SELECT finished_at FROM audit_runs
-                   WHERE kind = 'bagit' AND status = 'PASS'
+                   WHERE kind = 'bagit' AND status IN ('PASS', 'WARNING')
                      AND finished_at IS NOT NULL
                    ORDER BY finished_at DESC LIMIT 1"""
             ).fetchone()
@@ -413,6 +413,7 @@ class Database:
         metrics = {
             "total": float(len(rows)),
             "valid": 0.0,
+            "warnings": 0.0,
             "invalid": 0.0,
             "missing_files": 0.0,
             "checksum_mismatch": 0.0,
@@ -420,7 +421,7 @@ class Database:
             "weak_algorithm": 0.0,
             "unknown": 0.0,
             "scan_complete": float(run["scan_complete"]) if run else 0.0,
-            "last_run_ok": float(run["status"] == "PASS") if run else 0.0,
+            "last_run_ok": float(run["status"] in {"PASS", "WARNING"}) if run else 0.0,
             "last_run_timestamp_seconds": (
                 datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
             ),
@@ -434,17 +435,24 @@ class Database:
             if row["status"] == "PASS":
                 metrics["valid"] += 1.0
                 continue
+            evidence = json.loads(row["evidence_json"])
+            warnings = set(evidence.get("warnings", []))
+            if row["status"] == "WARNING":
+                metrics["warnings"] += 1.0
+                if "BAG_WEAK_MANIFEST_ALGORITHM" in warnings:
+                    metrics["weak_algorithm"] += 1.0
+                continue
             if row["status"] == "UNKNOWN":
                 metrics["unknown"] += 1.0
                 continue
             metrics["invalid"] += 1.0
-            errors = set(json.loads(row["evidence_json"]).get("errors", []))
+            errors = set(evidence.get("errors", []))
             if errors & {"BAG_PAYLOAD_MISSING", "BAG_TAG_FILE_MISSING"}:
                 metrics["missing_files"] += 1.0
             if errors & {"BAG_CHECKSUM_MISMATCH", "BAG_TAG_CHECKSUM_MISMATCH"}:
                 metrics["checksum_mismatch"] += 1.0
             if "BAG_PAYLOAD_UNLISTED" in errors:
                 metrics["unlisted_files"] += 1.0
-            if "BAG_WEAK_MANIFEST_ALGORITHM" in errors:
+            if "BAG_WEAK_MANIFEST_ALGORITHM" in errors | warnings:
                 metrics["weak_algorithm"] += 1.0
         return metrics

@@ -179,6 +179,7 @@ def main() -> None:
             "scan_complete": complete,
             "total": len(results),
             "valid": sum(item.status == Status.PASS for item in results),
+            "warnings": sum(item.status == Status.WARNING for item in results),
             "invalid": sum(item.status == Status.FAIL for item in results),
             "unknown": sum(item.status == Status.UNKNOWN for item in results),
         }
