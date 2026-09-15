@@ -13,6 +13,7 @@ from .integrity import IntegrityAuditor
 from .metrics import render_metrics, serve
 from .models import Status
 from .replicas import ReplicaVerificationError
+from .replica_audit import ReplicaAuditor
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +58,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = commands.add_parser("check", help="Compara arquivos com o baseline")
     check.add_argument("directory", type=Path)
+
+    check_replicas = commands.add_parser(
+        "check-replicas", help="Verifica novamente as replicas registradas"
+    )
+    check_replicas.add_argument(
+        "--replicas-config",
+        type=Path,
+        default=os.environ.get("PRESERVATION_REPLICAS_CONFIG"),
+    )
 
     commands.add_parser("metrics", help="Imprime metricas Prometheus")
 
@@ -122,6 +132,33 @@ def main() -> None:
             summary[key] == 0 for key in ("fail", "warning", "unknown")
         )
         raise SystemExit(0 if conforming else 2)
+    if args.command == "check-replicas":
+        if args.replicas_config is None:
+            raise SystemExit("replicas-config e obrigatorio")
+        try:
+            run_id, results, complete = ReplicaAuditor(database, logger).check(
+                args.replicas_config
+            )
+        except (ReplicaVerificationError, OSError, RuntimeError) as error:
+            print(
+                json.dumps(
+                    {"status": "failure", "error_code": type(error).__name__},
+                    ensure_ascii=True,
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        summary = {
+            "run_id": run_id,
+            "scan_complete": complete,
+            "total": len(results),
+            "valid": sum(item.status == Status.PASS for item in results),
+            "failed": sum(item.status == Status.FAIL for item in results),
+            "unknown": sum(item.status == Status.UNKNOWN for item in results),
+        }
+        print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
+        raise SystemExit(0 if complete and summary["failed"] == 0 else 2)
     if args.command == "metrics":
         print(render_metrics(database), end="")
         return

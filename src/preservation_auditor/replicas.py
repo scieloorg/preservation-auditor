@@ -256,7 +256,13 @@ class S3HeadClient:
                     "ContentLength": int(length) if length is not None else None,
                     "Metadata": metadata,
                 }
-        except (HTTPError, URLError, TimeoutError, ValueError) as error:
+        except HTTPError as error:
+            if error.code == 404:
+                raise ReplicaVerificationError("replica_not_found") from error
+            raise ReplicaVerificationError(
+                "replica_request_failed:HTTPError"
+            ) from error
+        except (URLError, TimeoutError, ValueError) as error:
             raise ReplicaVerificationError(
                 "replica_request_failed:{}".format(type(error).__name__)
             ) from error
@@ -284,6 +290,16 @@ def verify_replicas(
             response = client_factory(target).head_object(
                 Bucket=target.bucket, Key=key
             )
+        except ReplicaVerificationError as error:
+            if str(error).split(":", 1)[0] == "replica_not_found":
+                raise ReplicaVerificationError(
+                    "replica_not_found:{}".format(target.name)
+                ) from error
+            raise ReplicaVerificationError(
+                "replica_head_failed:{}:{}".format(
+                    target.name, type(error).__name__
+                )
+            ) from error
         except Exception as error:
             raise ReplicaVerificationError(
                 "replica_head_failed:{}:{}".format(

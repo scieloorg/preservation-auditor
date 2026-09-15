@@ -131,6 +131,17 @@ class Database:
             rows = connection.execute("SELECT * FROM integrity_baselines").fetchall()
         return {row["relative_path"]: row for row in rows}
 
+    def registered_replicas(self) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """SELECT r.event_id, r.replica_name, r.bucket, r.object_key,
+                          r.size_bytes, b.checksum, e.aip_id
+                   FROM replica_verifications AS r
+                   JOIN baseline_events AS e ON e.event_id = r.event_id
+                   JOIN integrity_baselines AS b ON b.resource_id = e.resource_id
+                   ORDER BY r.event_id, r.replica_name"""
+            ).fetchall()
+
     def baseline_event_exists(self, event_id: str) -> bool:
         with self.connect() as connection:
             row = connection.execute(
@@ -322,3 +333,60 @@ class Database:
                 last_success["finished_at"]
             ).timestamp()
         return metrics
+
+    def latest_replica_metrics(self) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+        with self.connect() as connection:
+            run = connection.execute(
+                """SELECT run_id, status, scan_complete, finished_at, duration_seconds
+                   FROM audit_runs
+                   WHERE kind = 'replica_integrity' AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            last_success = connection.execute(
+                """SELECT finished_at FROM audit_runs
+                   WHERE kind = 'replica_integrity' AND status = 'PASS'
+                     AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            rows = [] if run is None else connection.execute(
+                """SELECT status, error_code, evidence_json
+                   FROM audit_results
+                   WHERE run_id = ? AND control = 'aip.replica_integrity'""",
+                (run["run_id"],),
+            ).fetchall()
+
+        metrics = {
+            "valid": 0.0,
+            "missing": 0.0,
+            "changed": 0.0,
+            "unknown": 0.0,
+            "scan_complete": float(run["scan_complete"]) if run else 0.0,
+            "last_run_ok": float(run["status"] == "PASS") if run else 0.0,
+            "last_run_timestamp_seconds": (
+                datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
+            ),
+            "last_run_duration_seconds": float(run["duration_seconds"] or 0) if run else 0.0,
+            "last_success_timestamp_seconds": (
+                datetime.fromisoformat(last_success["finished_at"]).timestamp()
+                if last_success else 0.0
+            ),
+        }
+        providers: dict[str, dict[str, float]] = {}
+        for row in rows:
+            evidence = json.loads(row["evidence_json"])
+            provider = str(evidence["replica_name"])
+            provider_metrics = providers.setdefault(
+                provider,
+                {"valid": 0.0, "missing": 0.0, "changed": 0.0, "unknown": 0.0},
+            )
+            if row["status"] == "PASS":
+                key = "valid"
+            elif row["error_code"] == "REPLICA_MISSING":
+                key = "missing"
+            elif row["status"] == "FAIL":
+                key = "changed"
+            else:
+                key = "unknown"
+            metrics[key] += 1.0
+            provider_metrics[key] += 1.0
+        return metrics, providers

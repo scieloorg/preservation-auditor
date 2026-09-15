@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import Mock, patch
 
 from preservation_auditor.auto_baseline import (
@@ -308,6 +309,30 @@ class ReceiptAndReplicaTests(unittest.TestCase):
         )
         self.assertEqual(11, response["ContentLength"])
         self.assertEqual("1" * 64, response["Metadata"]["sha256"])
+
+    def test_s3_head_reports_not_found_without_exposing_response(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "replicas.json"
+            path.write_text(json.dumps(replicas_config()), encoding="utf-8")
+            target = load_replica_targets(path)[0]
+        with patch.dict(
+            "os.environ",
+            {"TEST_ACCESS_KEY": "access", "TEST_SECRET_KEY": "secret"},
+        ):
+            fake_opener = Mock()
+            fake_opener.open.side_effect = HTTPError(
+                target.endpoint_url, 404, "not found", {}, None
+            )
+            with patch(
+                "preservation_auditor.replicas.build_opener",
+                return_value=fake_opener,
+            ):
+                with self.assertRaisesRegex(
+                    ReplicaVerificationError, "replica_not_found"
+                ):
+                    S3HeadClient(target).head_object(
+                        Bucket=target.bucket, Key="aips/missing.7z"
+                    )
 
 
 if __name__ == "__main__":
