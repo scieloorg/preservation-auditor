@@ -90,3 +90,57 @@ groups:
         annotations:
           summary: "Auditoria conforme das replicas esta atrasada"
           description: "Nao existe auditoria integralmente conforme das replicas nas ultimas 25 horas."
+
+      - alert: SciELOPreservationBagItInvalid
+        expr: scielo_preservation_bagits_invalid > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pacote BagIt invalido"
+          description: "A ultima auditoria encontrou {{ $value }} pacote(s) BagIt invalido(s)."
+
+      - alert: SciELOPreservationBagItNoneDiscovered
+        expr: scielo_preservation_bagits_last_run_timestamp_seconds > 0 and scielo_preservation_bagits_total == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nenhum pacote BagIt descoberto"
+          description: "Confira PRESERVATION_BAGIT_ROOT e as permissoes de leitura do servico."
+
+      - alert: SciELOPreservationBagItChecksumMismatch
+        expr: scielo_preservation_bagits_checksum_mismatch > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Checksum de BagIt divergente"
+          description: "Um ou mais payloads ou tag files nao correspondem ao manifesto."
+
+      - alert: SciELOPreservationBagItWeakAlgorithm
+        expr: scielo_preservation_bagits_weak_algorithm > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BagIt usa algoritmo fraco"
+          description: "Existem {{ $value }} pacote(s) sem manifesto SHA-256 ou SHA-512 confiavel."
+
+      - alert: SciELOPreservationBagItCheckIncomplete
+        expr: scielo_preservation_bagits_last_run_timestamp_seconds > 0 and scielo_preservation_bagits_scan_complete == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auditoria BagIt incompleta"
+          description: "Um ou mais pacotes BagIt nao puderam ser lidos integralmente."
+
+      - alert: SciELOPreservationBagItCheckStale
+        expr: scielo_preservation_bagits_last_run_timestamp_seconds > 0 and time() - scielo_preservation_bagits_last_run_timestamp_seconds > 691200
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auditoria BagIt atrasada"
+          description: "A auditoria periodica de BagIts nao executa ha mais de oito dias."

@@ -188,6 +188,44 @@ Codigos de saida:
 Arquivos sem baseline sao registrados como `WARNING`; eles nao sao considerados
 integros enquanto um baseline explicito nao for criado.
 
+## Validar pacotes BagIt do Dataverse
+
+O comando `check-bagits` descobre bags em diretorios e dentro de arquivos ZIP,
+valida a estrutura, os arquivos obrigatorios, a cobertura do payload e os
+checksums sem extrair o ZIP:
+
+```bash
+preservation-auditor check-bagits \
+  /var/archivematica/sharedDirectory/transferSource/dataverse/dataverse
+```
+
+Manifestos SHA-256 e SHA-512 sao aceitos como evidencia forte. Bags que possuem
+somente `manifest-md5.txt` ou outro algoritmo nao aprovado sao marcados como
+invalidos, com os erros `BAG_WEAK_MANIFEST_ALGORITHM` e
+`BAG_STRONG_MANIFEST_MISSING`. Isso nao altera o pacote original; a correcao deve
+ser feita no fluxo produtor, gerando um manifesto forte adicional.
+
+ZIPs sao lidos em streaming e nunca extraidos. Caminhos absolutos ou com `..`,
+entradas duplicadas ou criptografadas e razoes de compressao suspeitas sao
+rejeitados. O comando retorna `0` somente quando todos os pacotes descobertos sao
+validos e legiveis; retorna `2` quando encontra pacote invalido ou inconclusivo.
+
+Configure `PRESERVATION_BAGIT_ROOT` em
+`/etc/preservation-auditor/environment`, instale as unidades
+`preservation-auditor-bagits.service` e `.timer`, recarregue o systemd e habilite:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now preservation-auditor-bagits.timer
+systemctl start preservation-auditor-bagits.service
+journalctl -u preservation-auditor-bagits.service -n 50 --no-pager
+```
+
+O timer executa aos domingos as 04:00, com atraso aleatorio de ate 30 minutos.
+Os resultados detalhados ficam no SQLite e no log de auditoria; os agregados
+`scielo_preservation_bagits_*` sao publicados pelo exporter para Prometheus e
+Grafana.
+
 ## Expor metricas
 
 ```bash
@@ -205,15 +243,15 @@ de um proxy autenticado. O padrao `127.0.0.1` evita exposicao acidental.
 
 O arquivo `prometheus/scrape-config.example.yml` mostra a configuracao de coleta.
 Adicione `prometheus/alerts.yml` ao `rule_files` do Prometheus para habilitar os
-alertas de divergencia, ausencia, cobertura incompleta, baseline pendente e auditoria
-atrasada.
+alertas de divergencia, ausencia, cobertura incompleta, baseline pendente, BagIt
+invalido e auditoria atrasada.
 Importe `grafana/dashboards/integrity-overview.json` no Grafana e selecione o datasource
 Prometheus existente.
 
 ## Automatizar com systemd
 
-Os exemplos em `systemd/` incluem um timer diario, o job de verificacao, o exporter
-as unidades de auditoria das replicas e a unidade parametrizada
+Os exemplos em `systemd/` incluem os timers de integridade, replicas e BagIt, o
+exporter e a unidade parametrizada
 `preservation-auditor-baseline-auto@.service`.
 Antes de instala-los:
 
@@ -224,7 +262,8 @@ Antes de instala-los:
 4. garanta leitura do AIP e escrita somente em `/var/lib/preservation-auditor` e
    `/var/log/preservation-auditor`;
 5. copie as unidades para `/etc/systemd/system`, recarregue o systemd e habilite
-   `preservation-auditor-check.timer` e `preservation-auditor-exporter.service`.
+   `preservation-auditor-check.timer`, `preservation-auditor-replicas.timer`,
+   `preservation-auditor-bagits.timer` e `preservation-auditor-exporter.service`.
 
 Depois que o hook do Archivematica gravar atomicamente um recibo assinado em
 `/var/lib/preservation-auditor/inbox/`, ele pode iniciar a unidade usando somente o

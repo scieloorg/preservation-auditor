@@ -390,3 +390,61 @@ class Database:
             metrics[key] += 1.0
             provider_metrics[key] += 1.0
         return metrics, providers
+
+    def latest_bagit_metrics(self) -> dict[str, float]:
+        with self.connect() as connection:
+            run = connection.execute(
+                """SELECT run_id, status, scan_complete, finished_at, duration_seconds
+                   FROM audit_runs
+                   WHERE kind = 'bagit' AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            last_success = connection.execute(
+                """SELECT finished_at FROM audit_runs
+                   WHERE kind = 'bagit' AND status = 'PASS'
+                     AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            rows = [] if run is None else connection.execute(
+                """SELECT status, evidence_json FROM audit_results
+                   WHERE run_id = ? AND control = 'bagit.structural_integrity'""",
+                (run["run_id"],),
+            ).fetchall()
+        metrics = {
+            "total": float(len(rows)),
+            "valid": 0.0,
+            "invalid": 0.0,
+            "missing_files": 0.0,
+            "checksum_mismatch": 0.0,
+            "unlisted_files": 0.0,
+            "weak_algorithm": 0.0,
+            "unknown": 0.0,
+            "scan_complete": float(run["scan_complete"]) if run else 0.0,
+            "last_run_ok": float(run["status"] == "PASS") if run else 0.0,
+            "last_run_timestamp_seconds": (
+                datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
+            ),
+            "last_run_duration_seconds": float(run["duration_seconds"] or 0) if run else 0.0,
+            "last_success_timestamp_seconds": (
+                datetime.fromisoformat(last_success["finished_at"]).timestamp()
+                if last_success else 0.0
+            ),
+        }
+        for row in rows:
+            if row["status"] == "PASS":
+                metrics["valid"] += 1.0
+                continue
+            if row["status"] == "UNKNOWN":
+                metrics["unknown"] += 1.0
+                continue
+            metrics["invalid"] += 1.0
+            errors = set(json.loads(row["evidence_json"]).get("errors", []))
+            if errors & {"BAG_PAYLOAD_MISSING", "BAG_TAG_FILE_MISSING"}:
+                metrics["missing_files"] += 1.0
+            if errors & {"BAG_CHECKSUM_MISMATCH", "BAG_TAG_CHECKSUM_MISMATCH"}:
+                metrics["checksum_mismatch"] += 1.0
+            if "BAG_PAYLOAD_UNLISTED" in errors:
+                metrics["unlisted_files"] += 1.0
+            if "BAG_WEAK_MANIFEST_ALGORITHM" in errors:
+                metrics["weak_algorithm"] += 1.0
+        return metrics

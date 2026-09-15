@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .auto_baseline import AutoBaselineError, AutoBaselineJob, safe_error_code
 from .audit_log import configure_audit_logging
+from .bagit import BagItAuditor
 from .database import Database
 from .integrity import IntegrityAuditor
 from .metrics import render_metrics, serve
@@ -66,6 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--replicas-config",
         type=Path,
         default=os.environ.get("PRESERVATION_REPLICAS_CONFIG"),
+    )
+
+    check_bagits = commands.add_parser(
+        "check-bagits", help="Valida pacotes BagIt do Dataverse"
+    )
+    check_bagits.add_argument(
+        "directory",
+        type=Path,
+        nargs="?",
+        default=os.environ.get("PRESERVATION_BAGIT_ROOT"),
     )
 
     commands.add_parser("metrics", help="Imprime metricas Prometheus")
@@ -159,6 +170,22 @@ def main() -> None:
         }
         print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
         raise SystemExit(0 if complete and summary["failed"] == 0 else 2)
+    if args.command == "check-bagits":
+        if args.directory is None:
+            raise SystemExit("directory ou PRESERVATION_BAGIT_ROOT e obrigatorio")
+        run_id, results, complete = BagItAuditor(database, logger).check(args.directory)
+        summary = {
+            "run_id": run_id,
+            "scan_complete": complete,
+            "total": len(results),
+            "valid": sum(item.status == Status.PASS for item in results),
+            "invalid": sum(item.status == Status.FAIL for item in results),
+            "unknown": sum(item.status == Status.UNKNOWN for item in results),
+        }
+        print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
+        raise SystemExit(
+            0 if results and complete and summary["invalid"] == 0 else 2
+        )
     if args.command == "metrics":
         print(render_metrics(database), end="")
         return
