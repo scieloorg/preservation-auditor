@@ -45,3 +45,12 @@ groups:
         annotations:
           summary: "Verificacao de integridade conforme esta atrasada"
           description: "Nao existe uma varredura integralmente conforme nas ultimas 25 horas."
+
+      - alert: SciELOPreservationAutomaticBaselineFailed
+        expr: scielo_preservation_baseline_auto_last_run_timestamp_seconds > 0 and scielo_preservation_baseline_auto_last_run_ok == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Baseline automatico falhou"
+          description: "A ultima tentativa nao registrou um baseline confiavel. Consulte o log de auditoria pelo run_id."

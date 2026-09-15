@@ -1,0 +1,20 @@
+[Unit]
+Description=SciELO automatic baseline for Archivematica event %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=preservation-auditor
+Group=preservation-auditor
+EnvironmentFile=/etc/preservation-auditor/environment
+ExecStart=/opt/preservation-auditor/.venv/bin/preservation-auditor baseline-auto --receipt /var/lib/preservation-auditor/inbox/%i.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/preservation-auditor /var/log/preservation-auditor

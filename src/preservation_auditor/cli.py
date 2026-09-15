@@ -6,11 +6,13 @@ import os
 import sys
 from pathlib import Path
 
+from .auto_baseline import AutoBaselineError, AutoBaselineJob, safe_error_code
 from .audit_log import configure_audit_logging
 from .database import Database
 from .integrity import IntegrityAuditor
 from .metrics import render_metrics, serve
 from .models import Status
+from .replicas import ReplicaVerificationError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +29,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     baseline = commands.add_parser("baseline", help="Registra apenas arquivos novos")
     baseline.add_argument("directory", type=Path)
+
+    baseline_auto = commands.add_parser(
+        "baseline-auto",
+        help="Registra um AIP validado pelo Archivematica e pelas tres replicas",
+    )
+    baseline_auto.add_argument("--receipt", required=True, type=Path)
+    baseline_auto.add_argument(
+        "--aip-root",
+        type=Path,
+        default=os.environ.get("PRESERVATION_AIP_ROOT"),
+    )
+    baseline_auto.add_argument(
+        "--replicas-config",
+        type=Path,
+        default=os.environ.get("PRESERVATION_REPLICAS_CONFIG"),
+    )
+    baseline_auto.add_argument(
+        "--signing-key-env",
+        default="PRESERVATION_RECEIPT_HMAC_KEY",
+    )
+    baseline_auto.add_argument(
+        "--max-receipt-age-seconds",
+        type=int,
+        default=int(os.environ.get("PRESERVATION_MAX_RECEIPT_AGE", "86400")),
+    )
 
     check = commands.add_parser("check", help="Compara arquivos com o baseline")
     check.add_argument("directory", type=Path)
@@ -54,6 +81,31 @@ def main() -> None:
         result = auditor.create_baseline(args.directory)
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
         raise SystemExit(0 if result["failed"] == 0 else 2)
+    if args.command == "baseline-auto":
+        if args.aip_root is None or args.replicas_config is None:
+            raise SystemExit("aip-root e replicas-config sao obrigatorios")
+        if not 60 <= args.max_receipt_age_seconds <= 604800:
+            raise SystemExit("max-receipt-age-seconds deve estar entre 60 e 604800")
+        try:
+            result = AutoBaselineJob(database, logger).run(
+                receipt_path=args.receipt,
+                aip_root=args.aip_root,
+                replicas_config=args.replicas_config,
+                signing_key_env=args.signing_key_env,
+                max_receipt_age_seconds=args.max_receipt_age_seconds,
+            )
+        except (AutoBaselineError, ReplicaVerificationError, OSError, RuntimeError) as error:
+            print(
+                json.dumps(
+                    {"status": "failure", "error_code": safe_error_code(error)},
+                    ensure_ascii=True,
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+        raise SystemExit(0 if result["integrity_conforming"] else 2)
     if args.command == "check":
         run_id, results, complete = auditor.check(args.directory)
         summary = {

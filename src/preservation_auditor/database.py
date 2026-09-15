@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .models import AuditResult
+from .replicas import ReplicaEvidence
 
 
 SCHEMA = """
@@ -44,6 +45,27 @@ CREATE TABLE IF NOT EXISTS audit_results (
 );
 CREATE INDEX IF NOT EXISTS audit_results_run_idx ON audit_results(run_id);
 CREATE INDEX IF NOT EXISTS audit_results_status_idx ON audit_results(status);
+CREATE TABLE IF NOT EXISTS baseline_events (
+    event_id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL UNIQUE REFERENCES integrity_baselines(resource_id),
+    aip_id TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('archivematica')),
+    completed_at TEXT NOT NULL,
+    registered_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS replica_verifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL REFERENCES baseline_events(event_id),
+    replica_name TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    object_key TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+    checksum_verified INTEGER NOT NULL CHECK (checksum_verified IN (0, 1)),
+    verified_at TEXT NOT NULL,
+    UNIQUE(event_id, replica_name)
+);
+CREATE INDEX IF NOT EXISTS replica_verifications_event_idx
+    ON replica_verifications(event_id);
 """
 
 
@@ -108,6 +130,82 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM integrity_baselines").fetchall()
         return {row["relative_path"]: row for row in rows}
+
+    def baseline_event_exists(self, event_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM baseline_events WHERE event_id = ?", (event_id,)
+            ).fetchone()
+        return row is not None
+
+    def automatic_baseline_matches(
+        self,
+        *,
+        event_id: str,
+        aip_id: str,
+        relative_path: str,
+        checksum: str,
+        size_bytes: int,
+    ) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                """SELECT e.aip_id, b.relative_path, b.checksum, b.size_bytes
+                   FROM baseline_events AS e
+                   JOIN integrity_baselines AS b ON b.resource_id = e.resource_id
+                   WHERE e.event_id = ?""",
+                (event_id,),
+            ).fetchone()
+        return row is not None and (
+            row["aip_id"], row["relative_path"], row["checksum"], row["size_bytes"]
+        ) == (aip_id, relative_path, checksum, size_bytes)
+
+    def add_automatic_baseline(
+        self,
+        *,
+        resource_id: str,
+        relative_path: str,
+        checksum: str,
+        size_bytes: int,
+        event_id: str,
+        aip_id: str,
+        completed_at: str,
+        replicas: list[ReplicaEvidence],
+    ) -> bool:
+        registered_at = datetime.now(timezone.utc).isoformat()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO integrity_baselines
+                   (resource_id, relative_path, algorithm, checksum, size_bytes, created_at)
+                   VALUES (?, ?, 'sha256', ?, ?, ?)""",
+                (resource_id, relative_path, checksum, size_bytes, registered_at),
+            )
+            if cursor.rowcount != 1:
+                return False
+            connection.execute(
+                """INSERT INTO baseline_events
+                   (event_id, resource_id, aip_id, source, completed_at, registered_at)
+                   VALUES (?, ?, ?, 'archivematica', ?, ?)""",
+                (event_id, resource_id, aip_id, completed_at, registered_at),
+            )
+            connection.executemany(
+                """INSERT INTO replica_verifications
+                   (event_id, replica_name, bucket, object_key, size_bytes,
+                    checksum_verified, verified_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        event_id,
+                        item.name,
+                        item.bucket,
+                        item.object_key,
+                        item.size_bytes,
+                        int(item.checksum_verified),
+                        registered_at,
+                    )
+                    for item in replicas
+                ],
+            )
+        return True
 
     def save_results(self, run_id: str, results: list[AuditResult]) -> None:
         checked_at = datetime.now(timezone.utc).isoformat()
@@ -181,4 +279,46 @@ class Database:
                 metrics["without_baseline"] += value
             else:
                 metrics["errors"] += value
+        return metrics
+
+    def latest_auto_baseline_metrics(self) -> dict[str, float]:
+        with self.connect() as connection:
+            run = connection.execute(
+                """SELECT status, finished_at, duration_seconds FROM audit_runs
+                   WHERE kind = 'baseline_auto' AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            last_success = connection.execute(
+                """SELECT finished_at FROM audit_runs
+                   WHERE kind = 'baseline_auto' AND status IN ('PASS', 'WARNING')
+                     AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            baseline_count = connection.execute(
+                "SELECT COUNT(*) FROM baseline_events"
+            ).fetchone()[0]
+            replica_count = connection.execute(
+                "SELECT COUNT(*) FROM replica_verifications"
+            ).fetchone()[0]
+
+        metrics = {
+            "automatic_baselines_total": float(baseline_count),
+            "replica_verifications_total": float(replica_count),
+            "last_run_ok": 0.0,
+            "last_run_timestamp_seconds": 0.0,
+            "last_run_duration_seconds": 0.0,
+            "last_success_timestamp_seconds": 0.0,
+        }
+        if run is not None:
+            metrics["last_run_ok"] = float(run["status"] in {"PASS", "WARNING"})
+            metrics["last_run_timestamp_seconds"] = datetime.fromisoformat(
+                run["finished_at"]
+            ).timestamp()
+            metrics["last_run_duration_seconds"] = float(
+                run["duration_seconds"] or 0
+            )
+        if last_success is not None:
+            metrics["last_success_timestamp_seconds"] = datetime.fromisoformat(
+                last_success["finished_at"]
+            ).timestamp()
         return metrics
