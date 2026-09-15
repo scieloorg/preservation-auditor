@@ -12,10 +12,19 @@ from preservation_auditor.database import Database
 from preservation_auditor.metrics import render_metrics
 
 
-def bag_files(payload: bytes = b"dataset", algorithm: str = "sha256") -> dict[str, bytes]:
-    digest = hashlib.new(algorithm, payload).hexdigest()
+def bag_files(
+    payload: bytes = b"dataset", algorithm: str = "sha256", version: str = "1.0"
+) -> dict[str, bytes]:
+    digest = (
+        hashlib.md5(payload, usedforsecurity=False).hexdigest()
+        if algorithm == "md5"
+        else hashlib.new(algorithm, payload).hexdigest()
+    )
     return {
-        "bagit.txt": b"BagIt-Version: 0.97\nTag-File-Character-Encoding: UTF-8\n",
+        "bagit.txt": (
+            "BagIt-Version: {}\nTag-File-Character-Encoding: UTF-8\n".format(version)
+            .encode("ascii")
+        ),
         "bag-info.txt": b"Source-Organization: SciELO\n",
         "data/dataset.csv": payload,
         "manifest-{}.txt".format(algorithm): (
@@ -54,12 +63,70 @@ class BagItTests(unittest.TestCase):
         self.assertEqual("PASS", result.status.value)
         self.assertEqual("sha512", result.evidence["algorithm"])
 
-    def test_md5_only_is_rejected_as_weak(self) -> None:
+    def test_md5_only_is_validated_and_reported_as_warning(self) -> None:
         bag = self.make_directory_bag(algorithm="md5")
         result = validate_bag(DirectoryBag(bag, "bag"))
+        self.assertEqual("WARNING", result.status.value)
+        self.assertEqual("md5", result.evidence["algorithm"])
+        self.assertIn("BAG_WEAK_MANIFEST_ALGORITHM", result.evidence["warnings"])
+        self.assertIn("BAG_STRONG_MANIFEST_MISSING", result.evidence["warnings"])
+
+    def test_md5_mismatch_is_a_failure(self) -> None:
+        bag = self.make_directory_bag(algorithm="md5")
+        (bag / "data/dataset.csv").write_bytes(b"changed")
+        result = validate_bag(DirectoryBag(bag, "bag"))
         self.assertEqual("FAIL", result.status.value)
-        self.assertIn("BAG_WEAK_MANIFEST_ALGORITHM", result.evidence["errors"])
-        self.assertIn("BAG_STRONG_MANIFEST_MISSING", result.evidence["errors"])
+        self.assertIn("BAG_CHECKSUM_MISMATCH", result.evidence["errors"])
+
+    def test_nonstandard_bag_info_continuation_is_a_warning(self) -> None:
+        bag = self.make_directory_bag()
+        (bag / "bag-info.txt").write_text(
+            "External-Description: first line\n\nsecond paragraph\n"
+            "Bagging-Date: 2026-04-17\n",
+            encoding="utf-8",
+        )
+        result = validate_bag(DirectoryBag(bag, "bag"))
+        self.assertEqual("WARNING", result.status.value)
+        self.assertIn(
+            "BAG_NONSTANDARD_TAG_CONTINUATION", result.evidence["warnings"]
+        )
+
+    def test_double_slash_path_is_validated_with_warning(self) -> None:
+        archive = self.root / "noncanonical.zip"
+        payload = b"dataset"
+        files = bag_files(payload=payload)
+        del files["data/dataset.csv"]
+        del files["manifest-sha256.txt"]
+        files["data/folder//dataset.csv"] = payload
+        files["manifest-sha256.txt"] = (
+            hashlib.sha256(payload).hexdigest()
+            + "  data/folder//dataset.csv\n"
+        ).encode("ascii")
+        with zipfile.ZipFile(archive, "w") as output:
+            for relative, content in files.items():
+                output.writestr("deposit/" + relative, content)
+        result = validate_bag(ZipBag(archive, "deposit/", "noncanonical.zip"))
+        self.assertEqual("WARNING", result.status.value)
+        self.assertIn("BAG_NONCANONICAL_PATH", result.evidence["warnings"])
+
+    def test_duplicate_zip_directories_are_tolerated_but_files_are_not(self) -> None:
+        archive = self.root / "duplicate-directory.zip"
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("deposit/data/", b"")
+            output.writestr("deposit/data/", b"")
+            for relative, content in bag_files().items():
+                output.writestr("deposit/" + relative, content)
+        result = validate_bag(ZipBag(archive, "deposit/", "duplicate-directory.zip"))
+        self.assertEqual("PASS", result.status.value)
+
+        archive = self.root / "duplicate-file.zip"
+        with zipfile.ZipFile(archive, "w") as output:
+            for relative, content in bag_files().items():
+                output.writestr("deposit/" + relative, content)
+            output.writestr("deposit/data/dataset.csv", b"duplicate")
+        result = validate_bag(ZipBag(archive, "deposit/", "duplicate-file.zip"))
+        self.assertEqual("FAIL", result.status.value)
+        self.assertIn("BAG_ZIP_DUPLICATE_ENTRY", result.evidence["errors"])
 
     def test_checksum_mismatch_and_unlisted_payload(self) -> None:
         bag = self.make_directory_bag()
@@ -90,6 +157,20 @@ class BagItTests(unittest.TestCase):
         metrics = render_metrics(database)
         self.assertIn("scielo_preservation_bagits_total 1.0", metrics)
         self.assertIn("scielo_preservation_bagits_valid 1.0", metrics)
+        self.assertIn("scielo_preservation_bagits_last_run_ok 1.0", metrics)
+
+    def test_warning_run_is_successful_and_exported_separately(self) -> None:
+        self.make_directory_bag(algorithm="md5")
+        database = Database(self.root / "audit.db")
+        logger = logging.getLogger("bagit-warning-test-{}".format(id(self)))
+        logger.addHandler(logging.NullHandler())
+        _, results, complete = BagItAuditor(database, logger).check(self.root)
+        self.assertTrue(complete)
+        self.assertEqual("WARNING", results[0].status.value)
+        metrics = render_metrics(database)
+        self.assertIn("scielo_preservation_bagits_warnings 1.0", metrics)
+        self.assertIn("scielo_preservation_bagits_invalid 0.0", metrics)
+        self.assertIn("scielo_preservation_bagits_weak_algorithm 1.0", metrics)
         self.assertIn("scielo_preservation_bagits_last_run_ok 1.0", metrics)
 
     def test_empty_repository_is_not_reported_as_success(self) -> None:

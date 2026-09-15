@@ -41,6 +41,7 @@ REPLICA_METRIC_HELP = {
 BAGIT_METRIC_HELP = {
     "total": "Pacotes BagIt descobertos na ultima auditoria.",
     "valid": "Pacotes BagIt estruturalmente validos.",
+    "warnings": "Pacotes BagIt validos com ressalvas de preservacao.",
     "invalid": "Pacotes BagIt com uma ou mais falhas.",
     "missing_files": "Pacotes BagIt com arquivos declarados ausentes.",
     "checksum_mismatch": "Pacotes BagIt com checksum divergente.",

@@ -199,16 +199,20 @@ preservation-auditor check-bagits \
   /var/archivematica/sharedDirectory/transferSource/dataverse/dataverse
 ```
 
-Manifestos SHA-256 e SHA-512 sao aceitos como evidencia forte. Bags que possuem
-somente `manifest-md5.txt` ou outro algoritmo nao aprovado sao marcados como
-invalidos, com os erros `BAG_WEAK_MANIFEST_ALGORITHM` e
-`BAG_STRONG_MANIFEST_MISSING`. Isso nao altera o pacote original; a correcao deve
-ser feita no fluxo produtor, gerando um manifesto forte adicional.
+Manifestos SHA-256 e SHA-512 sao aceitos como evidencia forte. Para os pacotes
+historicos, `manifest-md5.txt` e recalculado e comparado, mas um resultado correto
+recebe `WARNING` com `BAG_WEAK_MANIFEST_ALGORITHM` e
+`BAG_STRONG_MANIFEST_MISSING`: MD5 ajuda a detectar alteracoes acidentais, mas nao
+e aceito como evidencia criptografica forte. Uma divergencia MD5 continua sendo
+`FAIL`. A remediacao recomendada e gerar tambem um manifesto SHA-256 ou SHA-512 no
+fluxo produtor, sem alterar silenciosamente o pacote preservado.
 
 ZIPs sao lidos em streaming e nunca extraidos. Caminhos absolutos ou com `..`,
-entradas duplicadas ou criptografadas e razoes de compressao suspeitas sao
-rejeitados. O comando retorna `0` somente quando todos os pacotes descobertos sao
-validos e legiveis; retorna `2` quando encontra pacote invalido ou inconclusivo.
+arquivos duplicados, entradas criptografadas e razoes de compressao suspeitas sao
+rejeitados. Diretorios ZIP repetidos sao tolerados. Caminhos com `//` e descricoes
+multilinha nao padronizadas do Dataverse sao validados pelo nome exato e registrados
+como `WARNING`. O comando retorna `0` quando todos os pacotes sao legiveis e estao
+em `PASS` ou `WARNING`; retorna `2` quando encontra `FAIL` ou `UNKNOWN`.
 
 Configure `PRESERVATION_BAGIT_ROOT` em
 `/etc/preservation-auditor/environment`, instale as unidades
