@@ -17,6 +17,15 @@ METRIC_HELP = {
     "last_success_timestamp_seconds": "Timestamp da ultima varredura conforme.",
 }
 
+AUTO_BASELINE_METRIC_HELP = {
+    "automatic_baselines_total": "Baselines registrados pelo fluxo automatico.",
+    "replica_verifications_total": "Replicas confirmadas antes do baseline.",
+    "last_run_ok": "Indica se a ultima execucao automatica registrou o baseline.",
+    "last_run_timestamp_seconds": "Timestamp da ultima execucao automatica.",
+    "last_run_duration_seconds": "Duracao da ultima execucao automatica.",
+    "last_success_timestamp_seconds": "Timestamp do ultimo baseline automatico.",
+}
+
 
 def render_metrics(database: Database) -> str:
     values = database.latest_integrity_metrics()
@@ -27,6 +36,13 @@ def render_metrics(database: Database) -> str:
             metric = f"scielo_preservation_{key}"
         lines.extend((
             f"# HELP {metric} {METRIC_HELP[key]}",
+            f"# TYPE {metric} gauge",
+            f"{metric} {value}",
+        ))
+    for key, value in database.latest_auto_baseline_metrics().items():
+        metric = f"scielo_preservation_baseline_auto_{key}"
+        lines.extend((
+            f"# HELP {metric} {AUTO_BASELINE_METRIC_HELP[key]}",
             f"# TYPE {metric} gauge",
             f"{metric} {value}",
         ))

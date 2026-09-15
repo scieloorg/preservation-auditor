@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from enum import StrEnum
-from typing import Any
+from enum import Enum
+from typing import Any, Dict, Optional
 
 
-class Status(StrEnum):
+class Status(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     WARNING = "WARNING"
@@ -19,10 +19,10 @@ class AuditResult:
     resource_id: str
     status: Status
     severity: str
-    evidence: dict[str, Any]
-    error_code: str | None = None
+    evidence: Dict[str, Any]
+    error_code: Optional[str] = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
         result["status"] = self.status.value
         return result

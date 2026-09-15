@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .audit_log import log_event
@@ -21,11 +22,15 @@ def resource_id(relative_path: str) -> str:
 
 def hash_file(path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
-    before = path.stat()
-    with path.open("rb") as stream:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError("not_a_regular_file")
         for chunk in iter(lambda: stream.read(CHUNK_SIZE), b""):
             digest.update(chunk)
-    after = path.stat()
+        after = os.fstat(stream.fileno())
     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
         raise RuntimeError("file_changed_during_hash")
     return digest.hexdigest(), after.st_size
@@ -97,7 +102,7 @@ class IntegrityAuditor:
 
     def check(self, root: Path) -> tuple[str, list[AuditResult], bool]:
         run_id = str(uuid.uuid4())
-        started = datetime.now(UTC).isoformat()
+        started = datetime.now(timezone.utc).isoformat()
         started_monotonic = time.monotonic()
         self.database.create_run(run_id, "integrity", started)
         log_event(

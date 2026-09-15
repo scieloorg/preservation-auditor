@@ -77,6 +77,36 @@
       ],
       "title": "Historico de integridade",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 14},
+      "id": 8,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_baseline_auto_automatic_baselines_total", "refId": "A"}],
+      "title": "Baselines automaticos",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 14},
+      "id": 9,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_baseline_auto_replica_verifications_total", "refId": "A"}],
+      "title": "Replicas confirmadas",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "FALHA"}, "1": {"color": "green", "text": "SUCESSO"}}, "type": "value"}]}, "overrides": []},
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 14},
+      "id": 10,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_baseline_auto_last_run_ok", "refId": "A"}],
+      "title": "Ultimo baseline automatico",
+      "type": "stat"
     }
   ],
   "schemaVersion": 39,
@@ -86,5 +116,5 @@
   "timezone": "browser",
   "title": "SciELO Data - Integridade dos AIPs",
   "uid": "scielo-aip-integrity",
-  "version": 1
+  "version": 2
 }

@@ -1,0 +1,34 @@
+{
+  "replicas": [
+    {
+      "name": "digitalocean",
+      "endpoint_url": "https://nyc3.digitaloceanspaces.com",
+      "bucket": "scielo-preservation",
+      "region": "nyc3",
+      "access_key_env": "DO_SPACES_ACCESS_KEY",
+      "secret_key_env": "DO_SPACES_SECRET_KEY",
+      "checksum_metadata_key": "sha256",
+      "require_checksum_metadata": false
+    },
+    {
+      "name": "minio",
+      "endpoint_url": "https://minio.example.internal",
+      "bucket": "scielo-preservation",
+      "region": "us-east-1",
+      "access_key_env": "MINIO_ACCESS_KEY",
+      "secret_key_env": "MINIO_SECRET_KEY",
+      "checksum_metadata_key": "sha256",
+      "require_checksum_metadata": false
+    },
+    {
+      "name": "wasabi",
+      "endpoint_url": "https://s3.us-east-1.wasabisys.com",
+      "bucket": "scielo-preservation",
+      "region": "us-east-1",
+      "access_key_env": "WASABI_ACCESS_KEY",
+      "secret_key_env": "WASABI_SECRET_KEY",
+      "checksum_metadata_key": "sha256",
+      "require_checksum_metadata": false
+    }
+  ]
+}

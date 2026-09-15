@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "event_id": "event-20260914-001",
+  "aip_id": "aip-123456",
+  "ingest_status": "COMPLETED",
+  "relative_path": "aip-123456.7z",
+  "object_key": "aips/aip-123456.7z",
+  "algorithm": "sha256",
+  "checksum": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "size_bytes": 123456,
+  "completed_at": "2026-09-14T12:00:00+00:00",
+  "signature": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
