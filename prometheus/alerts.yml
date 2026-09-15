@@ -144,3 +144,48 @@ groups:
         annotations:
           summary: "Auditoria BagIt atrasada"
           description: "A auditoria periodica de BagIts nao executa ha mais de oito dias."
+
+      - alert: SciELOPreservationFormatCriticalRisk
+        expr: scielo_preservation_formats_critical_risk > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Formato em risco critico de obsolescencia"
+          description: "Foram encontrados {{ $value }} arquivo(s) em formato de risco critico."
+
+      - alert: SciELOPreservationFormatHighRisk
+        expr: scielo_preservation_formats_high_risk > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Formato em alto risco de obsolescencia"
+          description: "Foram encontrados {{ $value }} arquivo(s) em formato de alto risco."
+
+      - alert: SciELOPreservationFormatUnknown
+        expr: scielo_preservation_formats_unknown > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Formato de arquivo nao identificado"
+          description: "O Siegfried nao identificou {{ $value }} arquivo(s) de payload."
+
+      - alert: SciELOPreservationFormatUnclassified
+        expr: scielo_preservation_formats_unclassified > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Formato ausente da politica de preservacao"
+          description: "Existem {{ $value }} arquivo(s) identificados sem regra na politica vigente."
+
+      - alert: SciELOPreservationFormatCheckStale
+        expr: scielo_preservation_formats_last_run_timestamp_seconds > 0 and time() - scielo_preservation_formats_last_run_timestamp_seconds > 3456000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auditoria de formatos atrasada"
+          description: "A auditoria mensal de formatos nao executa ha mais de 40 dias."

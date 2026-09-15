@@ -1,0 +1,24 @@
+[Unit]
+Description=SciELO Preservation Auditor format obsolescence check
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=preservation-auditor
+Group=preservation-auditor
+EnvironmentFile=/etc/preservation-auditor/environment
+ExecStart=/opt/preservation-auditor/.venv/bin/preservation-auditor check-obsolescence
+TimeoutStartSec=24h
+UMask=0077
+Nice=15
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/preservation-auditor /var/log/preservation-auditor
+

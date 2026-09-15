@@ -456,3 +456,56 @@ class Database:
             if "BAG_WEAK_MANIFEST_ALGORITHM" in errors | warnings:
                 metrics["weak_algorithm"] += 1.0
         return metrics
+
+    def latest_obsolescence_metrics(self) -> dict[str, float]:
+        with self.connect() as connection:
+            run = connection.execute(
+                """SELECT run_id, status, scan_complete, finished_at, duration_seconds
+                   FROM audit_runs WHERE kind = 'obsolescence' AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            last_success = connection.execute(
+                """SELECT finished_at FROM audit_runs
+                   WHERE kind = 'obsolescence' AND status IN ('PASS', 'WARNING')
+                     AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            rows = [] if run is None else connection.execute(
+                """SELECT status, error_code, evidence_json FROM audit_results
+                   WHERE run_id = ? AND control = 'format.obsolescence'""",
+                (run["run_id"],),
+            ).fetchall()
+        metrics = {
+            "total": float(len(rows)), "pass": 0.0, "warnings": 0.0,
+            "medium_risk": 0.0, "high_risk": 0.0, "critical_risk": 0.0,
+            "unclassified": 0.0,
+            "unknown": 0.0,
+            "scan_complete": float(run["scan_complete"]) if run else 0.0,
+            "last_run_ok": float(run["status"] in {"PASS", "WARNING"}) if run else 0.0,
+            "last_run_timestamp_seconds": (
+                datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
+            ),
+            "last_run_duration_seconds": float(run["duration_seconds"] or 0) if run else 0.0,
+            "last_success_timestamp_seconds": (
+                datetime.fromisoformat(last_success["finished_at"]).timestamp()
+                if last_success else 0.0
+            ),
+        }
+        for row in rows:
+            evidence = json.loads(row["evidence_json"])
+            risk = evidence.get("risk")
+            if row["status"] == "PASS":
+                metrics["pass"] += 1.0
+            elif row["status"] == "WARNING":
+                metrics["warnings"] += 1.0
+            elif row["status"] == "UNKNOWN":
+                metrics["unknown"] += 1.0
+            if risk == "medium":
+                metrics["medium_risk"] += 1.0
+            elif risk == "high":
+                metrics["high_risk"] += 1.0
+            elif risk == "critical":
+                metrics["critical_risk"] += 1.0
+            elif risk == "unclassified":
+                metrics["unclassified"] += 1.0
+        return metrics

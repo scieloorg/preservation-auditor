@@ -13,6 +13,7 @@ from .database import Database
 from .integrity import IntegrityAuditor
 from .metrics import render_metrics, serve
 from .models import Status
+from .obsolescence import ObsolescenceAuditor, ObsolescenceError
 from .replicas import ReplicaVerificationError
 from .replica_audit import ReplicaAuditor
 
@@ -77,6 +78,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         nargs="?",
         default=os.environ.get("PRESERVATION_BAGIT_ROOT"),
+    )
+
+    obsolescence = commands.add_parser(
+        "check-obsolescence", help="Classifica o risco dos formatos dos payloads"
+    )
+    obsolescence.add_argument(
+        "directory", type=Path, nargs="?",
+        default=os.environ.get("PRESERVATION_BAGIT_ROOT"),
+    )
+    obsolescence.add_argument(
+        "--policy", type=Path,
+        default=os.environ.get(
+            "PRESERVATION_FORMAT_POLICY", "/etc/preservation-auditor/format-policy.json"
+        ),
+    )
+    obsolescence.add_argument("--report", type=Path)
+    obsolescence.add_argument(
+        "--siegfried-bin", default=os.environ.get("PRESERVATION_SIEGFRIED_BIN", "sf")
     )
 
     commands.add_parser("metrics", help="Imprime metricas Prometheus")
@@ -186,6 +205,33 @@ def main() -> None:
         print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
         raise SystemExit(
             0 if results and complete and summary["invalid"] == 0 else 2
+        )
+    if args.command == "check-obsolescence":
+        if args.directory is None:
+            raise SystemExit("directory ou PRESERVATION_BAGIT_ROOT e obrigatorio")
+        try:
+            run_id, results, complete = ObsolescenceAuditor(database, logger).check(
+                root=args.directory, policy_path=args.policy, report_path=args.report,
+                siegfried_binary=args.siegfried_bin,
+            )
+        except (ObsolescenceError, OSError, RuntimeError) as error:
+            print(
+                json.dumps(
+                    {"status": "failure", "error_code": str(error)},
+                    ensure_ascii=True, sort_keys=True,
+                ), file=sys.stderr,
+            )
+            raise SystemExit(2)
+        summary = {
+            "run_id": run_id, "scan_complete": complete, "total": len(results),
+            "pass": sum(item.status == Status.PASS for item in results),
+            "warnings": sum(item.status == Status.WARNING for item in results),
+            "fail": sum(item.status == Status.FAIL for item in results),
+            "unknown": sum(item.status == Status.UNKNOWN for item in results),
+        }
+        print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
+        raise SystemExit(
+            0 if results and complete and summary["fail"] == 0 else 2
         )
     if args.command == "metrics":
         print(render_metrics(database), end="")
