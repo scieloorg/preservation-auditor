@@ -38,6 +38,22 @@ REPLICA_METRIC_HELP = {
     "last_success_timestamp_seconds": "Timestamp da ultima auditoria conforme.",
 }
 
+BAGIT_METRIC_HELP = {
+    "total": "Pacotes BagIt descobertos na ultima auditoria.",
+    "valid": "Pacotes BagIt estruturalmente validos.",
+    "invalid": "Pacotes BagIt com uma ou mais falhas.",
+    "missing_files": "Pacotes BagIt com arquivos declarados ausentes.",
+    "checksum_mismatch": "Pacotes BagIt com checksum divergente.",
+    "unlisted_files": "Pacotes BagIt com payload nao declarado.",
+    "weak_algorithm": "Pacotes BagIt que declaram algoritmo fraco.",
+    "unknown": "Pacotes BagIt cuja verificacao foi inconclusiva.",
+    "scan_complete": "Indica se todos os BagIts puderam ser lidos.",
+    "last_run_ok": "Indica se a ultima auditoria BagIt foi conforme.",
+    "last_run_timestamp_seconds": "Timestamp da ultima auditoria BagIt.",
+    "last_run_duration_seconds": "Duracao da ultima auditoria BagIt.",
+    "last_success_timestamp_seconds": "Timestamp da ultima auditoria BagIt conforme.",
+}
+
 
 def render_metrics(database: Database) -> str:
     values = database.latest_integrity_metrics()
@@ -71,6 +87,13 @@ def render_metrics(database: Database) -> str:
                 '{}{{replica="{}"}} {}'.format(metric, provider, values[key])
                 for provider, values in sorted(provider_values.items())
             )
+    for key, value in database.latest_bagit_metrics().items():
+        metric = f"scielo_preservation_bagits_{key}"
+        lines.extend((
+            f"# HELP {metric} {BAGIT_METRIC_HELP[key]}",
+            f"# TYPE {metric} gauge",
+            f"{metric} {value}",
+        ))
     return "\n".join(lines) + "\n"
 
 

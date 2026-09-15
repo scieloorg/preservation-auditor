@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SciELO Preservation Auditor BagIt check weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=preservation-auditor-bagits.service
+
+[Install]
+WantedBy=timers.target
