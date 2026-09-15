@@ -113,6 +113,36 @@ sobrescrever eventos. O coletor chama diretamente o mesmo fluxo de
 continua responsavel pelas verificacoes recorrentes. Erros de replica ou
 validade ficam no journal e fazem a execucao terminar com codigo 2.
 
+## Auditoria periodica das replicas
+
+Depois que o baseline automatico registra as evidencias, o comando abaixo volta a
+consultar cada objeto no DigitalOcean, MinIO e Wasabi:
+
+```bash
+preservation-auditor check-replicas \
+  --replicas-config /etc/preservation-auditor/replicas.json
+```
+
+A verificacao usa somente requisicoes `HEAD`: nao baixa nem modifica os AIPs. Cada
+replica e avaliada independentemente para que uma indisponibilidade nao esconda o
+estado dos outros provedores. Objeto ausente, tamanho divergente ou SHA-256 de
+metadata divergente resultam em `FAIL`; falha de rede, credencial ou configuracao
+resulta em `UNKNOWN` e marca a cobertura como incompleta. Quando a metadata SHA-256
+nao e obrigatoria nem esta presente, existencia e tamanho sao verificados e a
+evidencia registra `checksum_verified=false`.
+
+Instale `systemd/preservation-auditor-replicas.service` e
+`systemd/preservation-auditor-replicas.timer`, execute `systemctl daemon-reload` e
+habilite com:
+
+```bash
+systemctl enable --now preservation-auditor-replicas.timer
+```
+
+O timer executa diariamente as 03:00 com atraso aleatorio de ate 15 minutos. O
+comando termina com codigo `0` somente quando todas as replicas registradas estao
+conformes; divergencia ou resultado inconclusivo termina com codigo `2`.
+
 Instalacao nesta distribuicao:
 
 1. Instale as unidades `systemd/preservation-auditor-archivematica.*` em
@@ -183,7 +213,8 @@ Prometheus existente.
 ## Automatizar com systemd
 
 Os exemplos em `systemd/` incluem um timer diario, o job de verificacao, o exporter
-e a unidade parametrizada `preservation-auditor-baseline-auto@.service`.
+as unidades de auditoria das replicas e a unidade parametrizada
+`preservation-auditor-baseline-auto@.service`.
 Antes de instala-los:
 
 1. crie o usuario de servico `preservation-auditor` sem shell interativo;
@@ -216,10 +247,9 @@ Esta entrega cobre a integridade local e o baseline automatico condicionado as t
 replicas dos AIPs gerados pelo Archivematica. Os proximos coletores devem reutilizar
 o mesmo modelo de execucao, evidencia e metricas:
 
-1. auditoria periodica completa dos objetos nos tres buckets;
-2. resolucao dos DOIs e campos minimos das landing pages do `data.scielo.org`;
-3. validacao estrutural dos pacotes BagIt exportados pelo Dataverse;
-4. identificacao de formatos obsoletos ou em risco.
+1. resolucao dos DOIs e campos minimos das landing pages do `data.scielo.org`;
+2. validacao estrutural dos pacotes BagIt exportados pelo Dataverse;
+3. identificacao de formatos obsoletos ou em risco.
 
 ## Testes
 

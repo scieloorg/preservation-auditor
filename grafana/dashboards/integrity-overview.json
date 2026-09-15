@@ -107,6 +107,61 @@
       "targets": [{"expr": "scielo_preservation_baseline_auto_last_run_ok", "refId": "A"}],
       "title": "Ultimo baseline automatico",
       "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 19},
+      "id": 11,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_replicas_missing{replica=\"\"}", "refId": "A"}],
+      "title": "Replicas ausentes",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 19},
+      "id": 12,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_replicas_changed{replica=\"\"}", "refId": "A"}],
+      "title": "Replicas divergentes",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 19},
+      "id": 13,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_replicas_unknown{replica=\"\"}", "refId": "A"}],
+      "title": "Replicas inconclusivas",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "FALHA"}, "1": {"color": "green", "text": "SUCESSO"}}, "type": "value"}]}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 19},
+      "id": 14,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "scielo_preservation_replicas_last_run_ok", "refId": "A"}],
+      "title": "Ultima auditoria das replicas",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 24},
+      "id": 15,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}},
+      "targets": [
+        {"expr": "scielo_preservation_replicas_valid{replica!=\"\"}", "legendFormat": "{{replica}} validas", "refId": "A"},
+        {"expr": "scielo_preservation_replicas_missing{replica!=\"\"}", "legendFormat": "{{replica}} ausentes", "refId": "B"},
+        {"expr": "scielo_preservation_replicas_changed{replica!=\"\"}", "legendFormat": "{{replica}} divergentes", "refId": "C"},
+        {"expr": "scielo_preservation_replicas_unknown{replica!=\"\"}", "legendFormat": "{{replica}} inconclusivas", "refId": "D"}
+      ],
+      "title": "Integridade por provedor",
+      "type": "timeseries"
     }
   ],
   "schemaVersion": 39,
@@ -116,5 +171,5 @@
   "timezone": "browser",
   "title": "SciELO Data - Integridade dos AIPs",
   "uid": "scielo-aip-integrity",
-  "version": 2
+  "version": 3
 }

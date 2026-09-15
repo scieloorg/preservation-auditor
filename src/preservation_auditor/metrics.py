@@ -26,6 +26,18 @@ AUTO_BASELINE_METRIC_HELP = {
     "last_success_timestamp_seconds": "Timestamp do ultimo baseline automatico.",
 }
 
+REPLICA_METRIC_HELP = {
+    "valid": "Replicas que correspondem as evidencias do baseline.",
+    "missing": "Replicas registradas que nao foram encontradas.",
+    "changed": "Replicas com tamanho ou checksum divergente.",
+    "unknown": "Replicas cuja verificacao foi inconclusiva.",
+    "scan_complete": "Indica se todas as replicas puderam ser consultadas.",
+    "last_run_ok": "Indica se a ultima auditoria de replicas foi conforme.",
+    "last_run_timestamp_seconds": "Timestamp da ultima auditoria de replicas.",
+    "last_run_duration_seconds": "Duracao da ultima auditoria de replicas.",
+    "last_success_timestamp_seconds": "Timestamp da ultima auditoria conforme.",
+}
+
 
 def render_metrics(database: Database) -> str:
     values = database.latest_integrity_metrics()
@@ -46,6 +58,19 @@ def render_metrics(database: Database) -> str:
             f"# TYPE {metric} gauge",
             f"{metric} {value}",
         ))
+    replica_values, provider_values = database.latest_replica_metrics()
+    for key, value in replica_values.items():
+        metric = f"scielo_preservation_replicas_{key}"
+        lines.extend((
+            f"# HELP {metric} {REPLICA_METRIC_HELP[key]}",
+            f"# TYPE {metric} gauge",
+            f"{metric} {value}",
+        ))
+        if key in {"valid", "missing", "changed", "unknown"}:
+            lines.extend(
+                '{}{{replica="{}"}} {}'.format(metric, provider, values[key])
+                for provider, values in sorted(provider_values.items())
+            )
     return "\n".join(lines) + "\n"
 
 
