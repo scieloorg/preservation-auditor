@@ -10,6 +10,7 @@ from .auto_baseline import AutoBaselineError, AutoBaselineJob, safe_error_code
 from .audit_log import configure_audit_logging
 from .bagit import BagItAuditor
 from .database import Database
+from .doi_audit import DoiAuditError, DoiAuditor
 from .integrity import IntegrityAuditor
 from .metrics import render_metrics, serve
 from .models import Status
@@ -87,6 +88,18 @@ def build_parser() -> argparse.ArgumentParser:
         "directory", type=Path, nargs="?",
         default=os.environ.get("PRESERVATION_BAGIT_ROOT"),
     )
+
+    dois = commands.add_parser(
+        "check-dois", help="Valida DOIs DataCite e landing pages SciELO Data"
+    )
+    dois.add_argument(
+        "--prefix", default=os.environ.get("PRESERVATION_DOI_PREFIX", "10.48331")
+    )
+    dois.add_argument(
+        "--workers", type=int,
+        default=int(os.environ.get("PRESERVATION_DOI_WORKERS", "4")),
+    )
+    dois.add_argument("--max-dois", type=int, default=0)
     obsolescence.add_argument(
         "--policy", type=Path,
         default=os.environ.get(
@@ -215,6 +228,34 @@ def main() -> None:
                 siegfried_binary=args.siegfried_bin,
             )
         except (ObsolescenceError, OSError, RuntimeError) as error:
+            print(
+                json.dumps(
+                    {"status": "failure", "error_code": str(error)},
+                    ensure_ascii=True, sort_keys=True,
+                ), file=sys.stderr,
+            )
+            raise SystemExit(2)
+        summary = {
+            "run_id": run_id, "scan_complete": complete, "total": len(results),
+            "pass": sum(item.status == Status.PASS for item in results),
+            "warnings": sum(item.status == Status.WARNING for item in results),
+            "fail": sum(item.status == Status.FAIL for item in results),
+            "unknown": sum(item.status == Status.UNKNOWN for item in results),
+        }
+        print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
+        raise SystemExit(
+            0 if results and complete and summary["fail"] == 0 else 2
+        )
+    if args.command == "check-dois":
+        if not 1 <= args.workers <= 8:
+            raise SystemExit("workers deve estar entre 1 e 8")
+        if args.max_dois < 0:
+            raise SystemExit("max-dois nao pode ser negativo")
+        try:
+            run_id, results, complete = DoiAuditor(database, logger).check(
+                prefix=args.prefix, workers=args.workers, max_dois=args.max_dois
+            )
+        except (DoiAuditError, OSError, RuntimeError) as error:
             print(
                 json.dumps(
                     {"status": "failure", "error_code": str(error)},

@@ -271,6 +271,49 @@ systemctl enable --now preservation-auditor-obsolescence.timer
 O timer executa mensalmente no dia 7, as 05:00, com atraso aleatorio de ate 30
 minutos. Os agregados sao expostos como `scielo_preservation_formats_*`.
 
+## Auditar DOIs e landing pages
+
+O comando `check-dois` pagina todos os registros do prefixo no DataCite, resolve
+cada DOI e valida a landing page final no SciELO Data:
+
+```bash
+preservation-auditor check-dois --prefix 10.48331 --workers 2
+```
+
+Para uma verificacao inicial de baixo impacto:
+
+```bash
+preservation-auditor check-dois \
+  --prefix 10.48331 \
+  --workers 2 \
+  --max-dois 20
+```
+
+O inventario inclui DOIs de datasets e de arquivos. Para todos eles, a politica
+minima exige titulo, autores, resumo, licenca, status, contato e DOI ativo tanto
+nas evidencias DataCite quanto na landing page. Ausencias sao registradas como
+`FAIL`, indisponibilidade temporaria como `UNKNOWN` e passagem por HTTP sem TLS
+como `WARNING`.
+
+A cadeia de redirecionamento aceita somente `doi.org` e `data.scielo.org`, tem
+limite de saltos e tamanho de resposta e nunca segue um DOI para host arbitrario.
+O teste real de implantacao encontrou atualmente um redirecionamento intermediario
+de HTTPS para HTTP no SciELO Data; ele nao impede a leitura, mas gera
+`DOI_INSECURE_REDIRECT`.
+
+A consulta correta da API DataCite deve usar a URL original, sem a sintaxe de link
+Markdown e sem barras invertidas nos colchetes:
+
+```bash
+curl -sS \
+  'https://api.datacite.org/dois?prefix=10.48331&page%5Bsize%5D=1000&page%5Bnumber%5D=1'
+```
+
+Instale `preservation-auditor-dois.service` e `.timer`, configure
+`PRESERVATION_DOI_PREFIX` e `PRESERVATION_DOI_WORKERS` e habilite o timer. Ele
+executa semanalmente, segunda-feira as 06:00, com atraso aleatorio de ate 30
+minutos. Os agregados sao expostos como `scielo_preservation_dois_*`.
+
 ## Expor metricas
 
 ```bash
@@ -308,8 +351,8 @@ Antes de instala-los:
    `/var/log/preservation-auditor`;
 5. copie as unidades para `/etc/systemd/system`, recarregue o systemd e habilite
    `preservation-auditor-check.timer`, `preservation-auditor-replicas.timer`,
-   `preservation-auditor-bagits.timer`, `preservation-auditor-obsolescence.timer`
-   e `preservation-auditor-exporter.service`.
+   `preservation-auditor-bagits.timer`, `preservation-auditor-obsolescence.timer`,
+   `preservation-auditor-dois.timer` e `preservation-auditor-exporter.service`.
 
 Depois que o hook do Archivematica gravar atomicamente um recibo assinado em
 `/var/lib/preservation-auditor/inbox/`, ele pode iniciar a unidade usando somente o
@@ -328,12 +371,12 @@ exporter somente le o SQLite; a verificacao e feita pelo job agendado.
 
 ## Escopo deste MVP
 
-Esta entrega cobre a integridade local e o baseline automatico condicionado as tres
-replicas dos AIPs gerados pelo Archivematica. Os proximos coletores devem reutilizar
-o mesmo modelo de execucao, evidencia e metricas:
+Esta entrega cobre integridade local, replicas, BagIt, risco de formatos e auditoria
+dos DOIs e landing pages. As proximas evolucoes devem reutilizar o mesmo modelo de
+execucao, evidencia e metricas:
 
-1. resolucao dos DOIs e campos minimos das landing pages do `data.scielo.org`;
-2. ampliacao e governanca da politica versionada de formatos de preservacao;
+1. ampliacao e governanca da politica versionada de formatos de preservacao;
+2. relatorios de cobertura e evidencias para o plano de sucessao;
 3. planejamento assistido de migracoes, sempre preservando o original.
 
 ## Testes

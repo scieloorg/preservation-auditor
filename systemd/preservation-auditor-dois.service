@@ -1,0 +1,24 @@
+[Unit]
+Description=SciELO Preservation Auditor DOI and landing page check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=preservation-auditor
+Group=preservation-auditor
+EnvironmentFile=/etc/preservation-auditor/environment
+ExecStart=/opt/preservation-auditor/.venv/bin/preservation-auditor check-dois
+TimeoutStartSec=24h
+UMask=0077
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/preservation-auditor /var/log/preservation-auditor
+
