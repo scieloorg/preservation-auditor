@@ -71,6 +71,22 @@ OBSOLESCENCE_METRIC_HELP = {
     "last_success_timestamp_seconds": "Timestamp da ultima auditoria sem risco alto ou critico.",
 }
 
+DOI_METRIC_HELP = {
+    "total": "DOIs avaliados na ultima auditoria.",
+    "valid": "DOIs ativos com landing page e metadados minimos completos.",
+    "warnings": "DOIs conformes com ressalvas de transporte.",
+    "invalid": "DOIs inativos, sem resolucao ou com campos obrigatorios ausentes.",
+    "unknown": "DOIs cuja landing page nao pode ser consultada.",
+    "metadata_missing": "DOIs com metadados obrigatorios ausentes no DataCite.",
+    "landing_failed": "DOIs cuja landing page falhou ou nao contem campos minimos.",
+    "insecure_redirect": "DOIs cuja cadeia de resolucao inclui HTTP sem TLS.",
+    "scan_complete": "Indica se todas as landing pages puderam ser consultadas.",
+    "last_run_ok": "Indica se a ultima auditoria nao encontrou DOI invalido.",
+    "last_run_timestamp_seconds": "Timestamp da ultima auditoria de DOIs.",
+    "last_run_duration_seconds": "Duracao da ultima auditoria de DOIs.",
+    "last_success_timestamp_seconds": "Timestamp da ultima auditoria sem DOI invalido.",
+}
+
 
 def render_metrics(database: Database) -> str:
     values = database.latest_integrity_metrics()
@@ -115,6 +131,13 @@ def render_metrics(database: Database) -> str:
         metric = f"scielo_preservation_formats_{key}"
         lines.extend((
             f"# HELP {metric} {OBSOLESCENCE_METRIC_HELP[key]}",
+            f"# TYPE {metric} gauge",
+            f"{metric} {value}",
+        ))
+    for key, value in database.latest_doi_metrics().items():
+        metric = f"scielo_preservation_dois_{key}"
+        lines.extend((
+            f"# HELP {metric} {DOI_METRIC_HELP[key]}",
             f"# TYPE {metric} gauge",
             f"{metric} {value}",
         ))

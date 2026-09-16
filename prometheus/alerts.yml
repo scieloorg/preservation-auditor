@@ -189,3 +189,48 @@ groups:
         annotations:
           summary: "Auditoria de formatos atrasada"
           description: "A auditoria mensal de formatos nao executa ha mais de 40 dias."
+
+      - alert: SciELOPreservationDoiInvalid
+        expr: scielo_preservation_dois_invalid > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DOI ou landing page fora de conformidade"
+          description: "A auditoria encontrou {{ $value }} DOI(s) invalidos ou incompletos."
+
+      - alert: SciELOPreservationDoiCheckIncomplete
+        expr: scielo_preservation_dois_last_run_timestamp_seconds > 0 and scielo_preservation_dois_scan_complete == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auditoria de DOIs incompleta"
+          description: "Uma ou mais landing pages nao puderam ser consultadas."
+
+      - alert: SciELOPreservationDoiMetadataMissing
+        expr: scielo_preservation_dois_metadata_missing > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Metadados minimos de DOI ausentes"
+          description: "Existem {{ $value }} DOI(s) sem todos os campos minimos no DataCite."
+
+      - alert: SciELOPreservationDoiInsecureRedirect
+        expr: scielo_preservation_dois_insecure_redirect > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Resolucao DOI passa por HTTP sem TLS"
+          description: "A cadeia de resolucao de {{ $value }} DOI(s) contem redirecionamento HTTP."
+
+      - alert: SciELOPreservationDoiCheckStale
+        expr: scielo_preservation_dois_last_run_timestamp_seconds > 0 and time() - scielo_preservation_dois_last_run_timestamp_seconds > 691200
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auditoria de DOIs atrasada"
+          description: "A auditoria semanal de DOIs nao executa ha mais de oito dias."

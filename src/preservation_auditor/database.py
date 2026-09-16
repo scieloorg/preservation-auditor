@@ -509,3 +509,59 @@ class Database:
             elif risk == "unclassified":
                 metrics["unclassified"] += 1.0
         return metrics
+
+    def latest_doi_metrics(self) -> dict[str, float]:
+        with self.connect() as connection:
+            run = connection.execute(
+                """SELECT run_id, status, scan_complete, finished_at, duration_seconds
+                   FROM audit_runs WHERE kind = 'doi' AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            last_success = connection.execute(
+                """SELECT finished_at FROM audit_runs
+                   WHERE kind = 'doi' AND status IN ('PASS', 'WARNING')
+                     AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            rows = [] if run is None else connection.execute(
+                """SELECT status, evidence_json FROM audit_results
+                   WHERE run_id = ? AND control = 'doi.landing_page'""",
+                (run["run_id"],),
+            ).fetchall()
+        metrics = {
+            "total": float(len(rows)), "valid": 0.0, "warnings": 0.0,
+            "invalid": 0.0, "unknown": 0.0, "metadata_missing": 0.0,
+            "landing_failed": 0.0, "insecure_redirect": 0.0,
+            "scan_complete": float(run["scan_complete"]) if run else 0.0,
+            "last_run_ok": float(run["status"] in {"PASS", "WARNING"}) if run else 0.0,
+            "last_run_timestamp_seconds": (
+                datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
+            ),
+            "last_run_duration_seconds": float(run["duration_seconds"] or 0) if run else 0.0,
+            "last_success_timestamp_seconds": (
+                datetime.fromisoformat(last_success["finished_at"]).timestamp()
+                if last_success else 0.0
+            ),
+        }
+        for row in rows:
+            evidence = json.loads(row["evidence_json"])
+            errors = set(evidence.get("errors", []))
+            warnings = set(evidence.get("warnings", []))
+            if row["status"] == "PASS":
+                metrics["valid"] += 1.0
+            elif row["status"] == "WARNING":
+                metrics["warnings"] += 1.0
+            elif row["status"] == "FAIL":
+                metrics["invalid"] += 1.0
+            else:
+                metrics["unknown"] += 1.0
+            if "DOI_METADATA_MISSING" in errors:
+                metrics["metadata_missing"] += 1.0
+            if errors & {
+                "DOI_LANDING_FIELDS_MISSING", "DOI_LANDING_HTTP_ERROR",
+                "DOI_REDIRECT_FORBIDDEN", "DOI_REDIRECT_INVALID", "DOI_REDIRECT_LIMIT",
+            }:
+                metrics["landing_failed"] += 1.0
+            if "DOI_INSECURE_REDIRECT" in warnings:
+                metrics["insecure_redirect"] += 1.0
+        return metrics
