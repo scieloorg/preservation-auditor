@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from preservation_auditor.database import Database
 from preservation_auditor.doi_audit import (
+    DoiAuditError,
     DoiAuditor,
     LandingMetadataParser,
     audit_doi,
@@ -104,15 +105,38 @@ class DoiAuditTests(unittest.TestCase):
         self.assertEqual(["Dataset landing"], parser.titles)
         self.assertIn("Support", " ".join(parser.text))
 
-    def test_datacite_pagination_uses_all_pages(self) -> None:
+    def test_datacite_cursor_pagination_uses_all_records(self) -> None:
         pages = [
-            {"data": [{"id": "one"}], "meta": {"totalPages": 2}},
-            {"data": [{"id": "two"}], "meta": {"totalPages": 2}},
+            {
+                "data": [{"id": "one"}], "meta": {"total": 2},
+                "links": {"next": "https://api.datacite.org/dois?page%5Bcursor%5D=abc"},
+            },
+            {"data": [{"id": "two"}], "meta": {"total": 2}, "links": {"next": None}},
         ]
         with patch("preservation_auditor.doi_audit._open_json", side_effect=pages) as fetch:
             records = list(iter_datacite_dois("10.48331", page_size=1000))
         self.assertEqual(["one", "two"], [item["id"] for item in records])
         self.assertIn("page%5Bsize%5D=1000", fetch.call_args_list[0].args[0])
+        self.assertIn("page%5Bcursor%5D=1", fetch.call_args_list[0].args[0])
+        self.assertEqual(
+            "https://api.datacite.org/dois?page%5Bcursor%5D=abc",
+            fetch.call_args_list[1].args[0],
+        )
+
+    def test_datacite_cursor_rejects_incomplete_inventory(self) -> None:
+        page = {"data": [{"id": "one"}], "meta": {"total": 2}, "links": {"next": None}}
+        with patch("preservation_auditor.doi_audit._open_json", return_value=page):
+            with self.assertRaisesRegex(DoiAuditError, "incomplete_inventory"):
+                list(iter_datacite_dois("10.48331"))
+
+    def test_datacite_cursor_rejects_untrusted_next_url(self) -> None:
+        page = {
+            "data": [{"id": "one"}], "meta": {"total": 2},
+            "links": {"next": "https://evil.example/dois?page%5Bcursor%5D=secret"},
+        }
+        with patch("preservation_auditor.doi_audit._open_json", return_value=page):
+            with self.assertRaisesRegex(DoiAuditError, "invalid_datacite_next_url"):
+                list(iter_datacite_dois("10.48331"))
 
     def test_audit_persists_and_exports_metrics(self) -> None:
         database = Database(self.root / "audit.db")

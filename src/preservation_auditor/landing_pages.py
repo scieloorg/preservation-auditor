@@ -93,6 +93,55 @@ def _latest_datasets(database: Database) -> list[dict[str, Any]]:
     return sorted(datasets, key=lambda item: item["doi"])
 
 
+def _normalized_name(value: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", value.lower())).strip("-")
+
+
+def _aip_package_name(relative_path: str, aip_id: str) -> str | None:
+    name = Path(relative_path).name
+    for extension in (".tar.gz", ".tar.bz2", ".tar.xz", ".7z", ".zip", ".tar"):
+        if name.lower().endswith(extension):
+            name = name[:-len(extension)]
+            break
+    suffix = "-" + aip_id.lower()
+    if not name.lower().endswith(suffix):
+        return None
+    return _normalized_name(name[:-len(suffix)])
+
+
+def sync_doi_aip_links(
+    database: Database, datasets: list[dict[str, Any]], logger, run_id: str,
+) -> dict[str, int]:
+    patterns = {
+        record["doi"]: re.compile(
+            r"^{}(?:-?v(?:ersion)?-?[0-9][a-z0-9-]*)?$".format(
+                re.escape(_normalized_name("doi-" + record["doi"]))
+            )
+        )
+        for record in datasets
+    }
+    summary = {"candidates": 0, "linked": 0, "unmatched": 0, "ambiguous": 0}
+    log_event(logger, action="job.doi_aip_link_sync", result="started",
+              resource="doi_aip_link", run_id=run_id)
+    for candidate in database.automatic_link_candidates():
+        summary["candidates"] += 1
+        package_name = _aip_package_name(
+            str(candidate["relative_path"]), str(candidate["aip_id"])
+        )
+        if package_name is None:
+            summary["unmatched"] += 1
+            continue
+        matches = [doi for doi, pattern in patterns.items() if pattern.fullmatch(package_name)]
+        if len(matches) != 1:
+            summary["ambiguous" if matches else "unmatched"] += 1
+            continue
+        database.save_doi_aip_link(doi=matches[0], aip_id=str(candidate["aip_id"]))
+        summary["linked"] += 1
+    log_event(logger, action="job.doi_aip_link_sync", result="success",
+              resource="doi_aip_link", run_id=run_id, extra=summary)
+    return summary
+
+
 def _preservation(database: Database, aip_id: str | None) -> dict[str, Any]:
     empty = {
         "code": "pending", "label": "Verificacao pendente", "aip_linked": False,
@@ -242,11 +291,14 @@ class LandingPageGenerator:
             records = _latest_datasets(self.database)
             if not records:
                 raise LandingPageError("dataset_metadata_not_available")
+            link_summary = sync_doi_aip_links(self.database, records, self.logger, run_id)
+            automatic_links = self.database.doi_aip_links()
+            automatic_links.update(links)
             results = []
             index_items = []
             for record in records:
                 record["preservation"] = _preservation(
-                    self.database, links.get(record["doi"])
+                    self.database, automatic_links.get(record["doi"])
                 )
                 page = _page_path(output, record["doi"])
                 _atomic_write(page, _render_page(record, contact))
@@ -258,7 +310,9 @@ class LandingPageGenerator:
                                     record["preservation"]["label"]))
                 results.append(AuditResult(
                     "landing.static_page", "doi", resource_id(record["doi"]), Status.PASS,
-                    "LOW", {"doi": record["doi"], "preservation_status": record["preservation"]["code"]},
+                    "LOW", {"doi": record["doi"],
+                            "preservation_status": record["preservation"]["code"],
+                            "aip_linked": record["preservation"]["aip_linked"]},
                 ))
             links_html = "".join(
                 '<li><a href="{}">{}</a> — {}</li>'.format(
@@ -273,8 +327,11 @@ class LandingPageGenerator:
                                      duration_seconds=time.monotonic() - started)
             log_event(self.logger, action="job.landing_page_generation", result="success",
                       resource="public_landing_page", run_id=run_id,
-                      extra={"records_processed": len(results), "output_files": len(results) * 2 + 1})
-            return {"run_id": run_id, "generated": len(results), "scan_complete": True}
+                      extra={"records_processed": len(results),
+                             "output_files": len(results) * 2 + 1,
+                             "automatic_links": link_summary["linked"]})
+            return {"run_id": run_id, "generated": len(results), "scan_complete": True,
+                    "automatic_links": link_summary}
         except Exception as error:
             self.database.finish_run(run_id, status="FAIL", scan_complete=False,
                                      duration_seconds=time.monotonic() - started)

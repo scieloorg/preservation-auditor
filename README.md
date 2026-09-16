@@ -273,7 +273,7 @@ minutos. Os agregados sao expostos como `scielo_preservation_formats_*`.
 
 ## Auditar DOIs e landing pages
 
-O comando `check-dois` pagina todos os registros do prefixo no DataCite, resolve
+O comando `check-dois` pagina por cursor todos os registros do prefixo no DataCite, resolve
 cada DOI e valida a landing page final no SciELO Data:
 
 ```bash
@@ -324,9 +324,14 @@ autores, resumo, licenca, estado do registro e contato sao publicados junto ao
 estado consolidado de preservacao. O HTML e escapado e cada arquivo e publicado
 por substituicao atomica.
 
-Para evitar declarar preservacao com base em inferencia de nomes ou caminhos, o
-vinculo entre DOI e AIP e explicito. Copie `config/landing-links.example.json`
-para `/etc/preservation-auditor/landing-links.json` e registre os pares reais:
+O vinculo DOI-AIP e descoberto automaticamente somente quando o nome original da
+transferencia, preservado no nome do AIP pelo Archivematica, corresponde exatamente
+ao identificador `doi-10-48331-scielodata-XXXXXX`, com sufixo opcional de versao.
+Nomes ambiguos ou fora do padrao permanecem pendentes. A tabela `doi_aip_links`
+guarda os vinculos confirmados pelo job.
+
+Para excecoes ou pacotes historicos, copie `config/landing-links.example.json`
+para `/etc/preservation-auditor/landing-links.json` e registre os pares manuais:
 
 ```json
 {
@@ -348,7 +353,8 @@ preservation-auditor generate-landings \
   --contact data@scielo.org
 ```
 
-Sem vinculo, a pagina e publicada como `Verificacao pendente`. Um baseline com
+Vinculos manuais prevalecem sobre os automaticos. Sem vinculo, a pagina e
+publicada como `Verificacao pendente`. Um baseline com
 tres replicas registradas, mas ainda sem uma nova auditoria local, aparece como
 `Preservado com alertas`. O estado `Preservado` exige integridade local `PASS` e
 tres replicas confirmadas; uma divergencia posterior resulta em

@@ -11,6 +11,7 @@ from preservation_auditor.doi_audit import DoiAuditor
 from preservation_auditor.landing_pages import (
     LandingPageError,
     LandingPageGenerator,
+    _aip_package_name,
     load_links,
 )
 from preservation_auditor.metrics import render_metrics
@@ -68,6 +69,7 @@ class LandingPageTests(unittest.TestCase):
         metrics = render_metrics(self.database)
         self.assertIn("scielo_preservation_landings_generated 1.0", metrics)
         self.assertIn("scielo_preservation_landings_pending 1.0", metrics)
+        self.assertIn("scielo_preservation_landings_unlinked 1.0", metrics)
 
     def test_linked_baseline_reports_preserved_with_alerts(self) -> None:
         with self.database.connect() as connection:
@@ -125,6 +127,54 @@ class LandingPageTests(unittest.TestCase):
                 output=self.root / "empty-public", links_config=None,
                 contact="data@scielo.org",
             )
+
+    def test_extracts_only_exact_doi_package_name(self) -> None:
+        aip_id = "12345678-1234-1234-1234-123456789abc"
+        self.assertEqual(
+            "doi-10-48331-scielodata-abc123v1-0",
+            _aip_package_name(
+                "pairtree/doi-10-48331-SCIELODATA-ABC123v1.0-{}.7z".format(aip_id),
+                aip_id,
+            ),
+        )
+        self.assertIsNone(_aip_package_name("pairtree/unrelated.7z", aip_id))
+
+    def test_automatically_links_exact_package_name(self) -> None:
+        aip_id = "12345678-1234-1234-1234-123456789abc"
+        relative = "pairtree/doi-10-48331-scielodata-abc123v1.0-{}.7z".format(aip_id)
+        with self.database.connect() as connection:
+            connection.execute(
+                """INSERT INTO integrity_baselines
+                   (resource_id, relative_path, algorithm, checksum, size_bytes, created_at)
+                   VALUES ('auto-rid', ?, 'sha256', ?, 1, '2026-01-01T00:00:00+00:00')""",
+                (relative, "a" * 64),
+            )
+            connection.execute(
+                """INSERT INTO baseline_events
+                   (event_id, resource_id, aip_id, source, completed_at, registered_at)
+                   VALUES ('auto-event', 'auto-rid', ?, 'archivematica',
+                           '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')""",
+                (aip_id,),
+            )
+            for name in ("digitalocean", "minio", "wasabi"):
+                connection.execute(
+                    """INSERT INTO replica_verifications
+                       (event_id, replica_name, bucket, object_key, size_bytes,
+                        checksum_verified, verified_at)
+                       VALUES ('auto-event', ?, 'private', 'private', 1, 1,
+                               '2026-01-01T00:00:00+00:00')""", (name,),
+                )
+        output = self.root / "auto-public"
+        result = LandingPageGenerator(self.database, self.logger).generate(
+            output=output, links_config=None, contact="data@scielo.org",
+        )
+        public = json.loads(
+            (output / "10.48331" / "scielodata.abc123" / "status.json").read_text()
+        )
+        self.assertEqual(1, result["automatic_links"]["linked"])
+        self.assertTrue(public["preservation"]["aip_linked"])
+        self.assertEqual(aip_id, self.database.doi_aip_links()["10.48331/scielodata.abc123"])
+        self.assertIn("scielo_preservation_landings_linked 1.0", render_metrics(self.database))
 
 
 if __name__ == "__main__":

@@ -96,24 +96,52 @@ def _open_json(url: str, timeout: float = 30) -> dict:
 
 
 def iter_datacite_dois(prefix: str, page_size: int = 1000) -> Iterable[dict]:
-    page = 1
-    while True:
-        query = urlencode({
-            "prefix": prefix,
-            "page[size]": page_size,
-            "page[number]": page,
-        })
-        payload = _open_json("{}?{}".format(DATACITE_API, query))
+    if not 1 <= page_size <= 1000:
+        raise DoiAuditError("invalid_datacite_page_size")
+    query = urlencode({
+        "prefix": prefix,
+        "page[size]": page_size,
+        "page[cursor]": "1",
+        "disable-facets": "true",
+    })
+    url: str | None = "{}?{}".format(DATACITE_API, query)
+    seen: set[str] = set()
+    observed = 0
+    expected: int | None = None
+    while url:
+        parsed = urlparse(url)
+        if (
+            parsed.scheme != "https" or parsed.hostname != "api.datacite.org"
+            or parsed.port not in {None, 443} or parsed.path != "/dois"
+            or parsed.username or parsed.password or parsed.fragment
+        ):
+            raise DoiAuditError("invalid_datacite_next_url")
+        if url in seen:
+            raise DoiAuditError("datacite_cursor_loop")
+        seen.add(url)
+        payload = _open_json(url)
         data = payload.get("data")
-        if not isinstance(data, list):
+        meta = payload.get("meta")
+        links = payload.get("links")
+        if (
+            not isinstance(data, list) or not isinstance(meta, dict)
+            or not isinstance(links, dict) or any(not isinstance(item, dict) for item in data)
+        ):
             raise DoiAuditError("invalid_datacite_response")
+        if expected is None:
+            try:
+                expected = int(meta["total"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise DoiAuditError("invalid_datacite_response") from error
         for item in data:
-            if isinstance(item, dict):
-                yield item
-        total_pages = int(payload.get("meta", {}).get("totalPages", page))
-        if page >= total_pages or not data:
-            break
-        page += 1
+            observed += 1
+            yield item
+        next_url = links.get("next")
+        if next_url is not None and not isinstance(next_url, str):
+            raise DoiAuditError("invalid_datacite_response")
+        url = next_url or None
+    if expected is None or observed != expected:
+        raise DoiAuditError("datacite_incomplete_inventory")
 
 
 def _fetch_landing(doi: str, timeout: float = 30) -> dict:

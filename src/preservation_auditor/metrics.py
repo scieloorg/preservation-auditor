@@ -93,6 +93,8 @@ LANDING_METRIC_HELP = {
     "preserved_with_alerts": "Datasets preservados que ainda possuem alertas.",
     "pending": "Datasets cuja verificacao de preservacao esta pendente.",
     "failure": "Datasets com falha de preservacao identificada.",
+    "linked": "Datasets vinculados de forma confiavel a um AIP.",
+    "unlinked": "Datasets ainda sem vinculo confiavel com um AIP.",
     "last_run_ok": "Indica se a ultima geracao terminou com sucesso.",
     "last_run_timestamp_seconds": "Timestamp da ultima geracao de landing pages.",
     "last_run_duration_seconds": "Duracao da ultima geracao de landing pages.",

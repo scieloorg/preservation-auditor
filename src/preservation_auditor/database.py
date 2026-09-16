@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS replica_verifications (
 );
 CREATE INDEX IF NOT EXISTS replica_verifications_event_idx
     ON replica_verifications(event_id);
+CREATE TABLE IF NOT EXISTS doi_aip_links (
+    doi TEXT PRIMARY KEY,
+    aip_id TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL CHECK (source IN ('package_name')),
+    linked_at TEXT NOT NULL
+);
 """
 
 
@@ -148,6 +154,34 @@ class Database:
                 "SELECT 1 FROM baseline_events WHERE event_id = ?", (event_id,)
             ).fetchone()
         return row is not None
+
+    def automatic_link_candidates(self) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """SELECT e.aip_id, e.registered_at, b.relative_path
+                   FROM baseline_events AS e
+                   JOIN integrity_baselines AS b ON b.resource_id = e.resource_id
+                   ORDER BY e.registered_at, e.aip_id"""
+            ).fetchall()
+
+    def save_doi_aip_link(self, *, doi: str, aip_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """INSERT INTO doi_aip_links (doi, aip_id, source, linked_at)
+                   VALUES (?, ?, 'package_name', ?)
+                   ON CONFLICT(doi) DO UPDATE SET
+                       aip_id = excluded.aip_id,
+                       source = excluded.source,
+                       linked_at = excluded.linked_at""",
+                (doi, aip_id, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def doi_aip_links(self) -> dict[str, str]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT doi, aip_id FROM doi_aip_links ORDER BY doi"
+            ).fetchall()
+        return {str(row["doi"]): str(row["aip_id"]) for row in rows}
 
     def automatic_baseline_matches(
         self,
@@ -581,6 +615,7 @@ class Database:
         metrics = {
             "generated": float(len(rows)), "preserved": 0.0,
             "preserved_with_alerts": 0.0, "pending": 0.0, "failure": 0.0,
+            "linked": 0.0, "unlinked": 0.0,
             "last_run_ok": float(run["status"] == "PASS") if run else 0.0,
             "last_run_timestamp_seconds": (
                 datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
@@ -588,7 +623,9 @@ class Database:
             "last_run_duration_seconds": float(run["duration_seconds"] or 0) if run else 0.0,
         }
         for row in rows:
-            status = json.loads(row["evidence_json"]).get("preservation_status")
+            evidence = json.loads(row["evidence_json"])
+            status = evidence.get("preservation_status")
             if status in metrics:
                 metrics[status] += 1.0
+            metrics["linked" if evidence.get("aip_linked") else "unlinked"] += 1.0
         return metrics
