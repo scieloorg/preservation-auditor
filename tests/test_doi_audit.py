@@ -73,6 +73,23 @@ class DoiAuditTests(unittest.TestCase):
         self.assertEqual("WARNING", result.status.value)
         self.assertIn("DOI_INSECURE_REDIRECT", result.evidence["warnings"])
 
+    def test_component_doi_inherits_parent_minimum_metadata(self) -> None:
+        parent = doi_record()["attributes"]
+        component = doi_record("10.48331/scielodata.abc123/file01")
+        component["attributes"]["descriptions"] = []
+        component["attributes"]["contributors"] = []
+        component["attributes"]["relatedIdentifiers"] = [{
+            "relationType": "IsPartOf", "relatedIdentifierType": "DOI",
+            "relatedIdentifier": "10.48331/scielodata.abc123",
+        }]
+        landing = valid_landing("")
+        landing.update({"creators": 0, "abstract": False, "license": False,
+                        "contact": False})
+        result = audit_doi(component, lambda _doi: landing, parent)
+        self.assertEqual("PASS", result.status.value)
+        self.assertEqual("parent", result.evidence["field_sources"]["abstract"])
+        self.assertEqual("parent", result.evidence["field_sources"]["contact"])
+
     def test_html_metadata_parser(self) -> None:
         parser = LandingMetadataParser()
         parser.feed(

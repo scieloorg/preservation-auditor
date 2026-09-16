@@ -171,11 +171,13 @@ def _fetch_landing(doi: str, timeout: float = 30) -> dict:
             ),
             "creators": len(parser.meta.get("dc.creator", [])),
             "abstract": bool(parser.meta.get("dc.description") or parser.meta.get("description")),
-            "license": bool(parser.licenses) or 'rel="license"' in link_header.lower(),
+            "license": bool(parser.licenses) or 'rel="license"' in link_header.lower()
+                       or "creative commons" in text or "cc by" in text,
             "doi": any(doi.lower() in value.lower() for value in parser.meta.get("dc.identifier", []))
                    or doi.lower() in html.lower(),
             "contact": "support" in text or "contato" in text or "contact" in text,
             "status": "published" in text or "publicado" in text,
+            "_page_text": text,
         }
     return {"error": "DOI_REDIRECT_LIMIT", "redirects": redirects}
 
@@ -187,7 +189,44 @@ def _has_contact(attributes: dict) -> bool:
     )
 
 
-def audit_doi(item: dict, landing_fetcher: Callable[[str], dict] = _fetch_landing) -> AuditResult:
+def _parent_doi(attributes: dict) -> str | None:
+    for item in attributes.get("relatedIdentifiers", []):
+        if (
+            isinstance(item, dict)
+            and item.get("relationType") == "IsPartOf"
+            and item.get("relatedIdentifierType") == "DOI"
+            and item.get("relatedIdentifier")
+        ):
+            return str(item["relatedIdentifier"]).lower()
+    return None
+
+
+def _abstracts(attributes: dict) -> list[str]:
+    return [
+        str(value["description"])
+        for value in attributes.get("descriptions", [])
+        if isinstance(value, dict) and value.get("descriptionType") == "Abstract"
+        and value.get("description")
+    ]
+
+
+def _names(attributes: dict) -> list[str]:
+    return [
+        str(value["name"])
+        for value in attributes.get("creators", [])
+        if isinstance(value, dict) and value.get("name")
+    ]
+
+
+def _visible(value: str, page_text: str, minimum: int = 20) -> bool:
+    normalized = " ".join(value.lower().split())
+    return bool(normalized) and normalized[:minimum] in " ".join(page_text.split())
+
+
+def audit_doi(
+    item: dict, landing_fetcher: Callable[[str], dict] = _fetch_landing,
+    parent_attributes: dict | None = None,
+) -> AuditResult:
     attributes = item.get("attributes", {})
     doi = str(attributes.get("doi") or item.get("id") or "").lower()
     evidence: dict = {
@@ -196,21 +235,37 @@ def audit_doi(item: dict, landing_fetcher: Callable[[str], dict] = _fetch_landin
         "is_active": bool(attributes.get("isActive")),
         "resource_type": attributes.get("types", {}).get("resourceTypeGeneral"),
     }
-    missing_datacite: list[str] = []
-    checks = {
+    parent = _parent_doi(attributes)
+    evidence["parent_doi"] = parent
+    own_checks = {
         "title": bool(attributes.get("titles")),
         "creators": bool(attributes.get("creators")),
-        "abstract": any(
-            isinstance(value, dict) and value.get("descriptionType") == "Abstract"
-            and value.get("description") for value in attributes.get("descriptions", [])
-        ),
+        "abstract": bool(_abstracts(attributes)),
         "license": bool(attributes.get("rightsList")),
         "contact": _has_contact(attributes),
         "status": bool(attributes.get("state")) and bool(attributes.get("isActive")),
     }
-    missing_datacite.extend(key for key, present in checks.items() if not present)
     landing = landing_fetcher(doi)
-    evidence["datacite_fields"] = checks
+    page_text = str(landing.pop("_page_text", ""))
+    parent_checks = {
+        "creators": bool(parent_attributes and parent_attributes.get("creators")),
+        "abstract": bool(parent_attributes and _abstracts(parent_attributes)),
+        "license": bool(parent_attributes and parent_attributes.get("rightsList")),
+        "contact": bool(parent_attributes and _has_contact(parent_attributes)),
+    }
+    effective_checks = dict(own_checks)
+    field_sources: dict[str, str] = {
+        key: "own" for key, present in own_checks.items() if present
+    }
+    if parent:
+        for key, present in parent_checks.items():
+            if not effective_checks[key] and present:
+                effective_checks[key] = True
+                field_sources[key] = "parent"
+    missing_datacite = [key for key, present in effective_checks.items() if not present]
+    evidence["datacite_fields"] = own_checks
+    evidence["effective_fields"] = effective_checks
+    evidence["field_sources"] = field_sources
     evidence["landing"] = landing
     error = landing.get("error")
     if error == "DOI_LANDING_UNAVAILABLE":
@@ -228,8 +283,29 @@ def audit_doi(item: dict, landing_fetcher: Callable[[str], dict] = _fetch_landin
         failures.append("DOI_METADATA_MISSING")
         evidence["missing_datacite_fields"] = missing_datacite
     if not error:
-        required_landing = ("title", "creators", "abstract", "license", "doi", "contact", "status")
-        missing_landing = [key for key in required_landing if not landing.get(key)]
+        creator_names = _names(attributes) or (
+            _names(parent_attributes) if parent_attributes else []
+        )
+        descriptions = _abstracts(attributes) or (
+            _abstracts(parent_attributes) if parent_attributes else []
+        )
+        visible_creators = bool(landing.get("creators")) or any(
+            _visible(name, page_text, minimum=min(20, len(name))) for name in creator_names
+        )
+        visible_abstract = bool(landing.get("abstract")) or any(
+            _visible(description, page_text) for description in descriptions
+        )
+        landing_checks = {
+            "title": bool(landing.get("title")),
+            "creators": visible_creators or bool(parent and parent_checks["creators"]),
+            "abstract": visible_abstract or bool(parent and parent_checks["abstract"]),
+            "license": bool(landing.get("license")) or bool(parent and parent_checks["license"]),
+            "doi": bool(landing.get("doi")),
+            "contact": bool(landing.get("contact")) or bool(parent and parent_checks["contact"]),
+            "status": bool(landing.get("status")),
+        }
+        evidence["landing_fields"] = landing_checks
+        missing_landing = [key for key, present in landing_checks.items() if not present]
         if missing_landing:
             failures.append("DOI_LANDING_FIELDS_MISSING")
             evidence["missing_landing_fields"] = missing_landing
@@ -270,10 +346,18 @@ class DoiAuditor:
                 records.append(item)
                 if max_dois and len(records) >= max_dois:
                     break
+            attributes_by_doi = {
+                str(item.get("attributes", {}).get("doi") or item.get("id") or "").lower():
+                item.get("attributes", {})
+                for item in records
+            }
             results: list[AuditResult] = []
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
-                    executor.submit(audit_doi, item, landing_fetcher): item
+                    executor.submit(
+                        audit_doi, item, landing_fetcher,
+                        attributes_by_doi.get(_parent_doi(item.get("attributes", {})) or ""),
+                    ): item
                     for item in records
                 }
                 for future in as_completed(futures):

@@ -289,11 +289,13 @@ preservation-auditor check-dois \
   --max-dois 20
 ```
 
-O inventario inclui DOIs de datasets e de arquivos. Para todos eles, a politica
-minima exige titulo, autores, resumo, licenca, status, contato e DOI ativo tanto
-nas evidencias DataCite quanto na landing page. Ausencias sao registradas como
-`FAIL`, indisponibilidade temporaria como `UNKNOWN` e passagem por HTTP sem TLS
-como `WARNING`.
+O inventario inclui DOIs de datasets e de arquivos. A politica minima exige titulo,
+autores, resumo, licenca, status, contato e DOI ativo. DOIs de dataset devem conter
+esses campos diretamente; DOIs de arquivo identificados por `IsPartOf` podem herdar
+autores, resumo, licenca e contato do dataset pai. A evidencia registra a origem
+`own` ou `parent` de cada campo. A landing page e avaliada por metadados estruturados
+e conteudo visivel equivalente. Ausencias efetivas sao `FAIL`, indisponibilidade
+temporaria e `UNKNOWN` e passagem por HTTP sem TLS gera `WARNING`.
 
 A cadeia de redirecionamento aceita somente `doi.org` e `data.scielo.org`, tem
 limite de saltos e tamanho de resposta e nunca segue um DOI para host arbitrario.
