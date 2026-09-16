@@ -565,3 +565,30 @@ class Database:
             if "DOI_INSECURE_REDIRECT" in warnings:
                 metrics["insecure_redirect"] += 1.0
         return metrics
+
+    def latest_landing_page_metrics(self) -> dict[str, float]:
+        with self.connect() as connection:
+            run = connection.execute(
+                """SELECT run_id, status, scan_complete, finished_at, duration_seconds
+                   FROM audit_runs WHERE kind = 'landing_pages' AND finished_at IS NOT NULL
+                   ORDER BY finished_at DESC LIMIT 1"""
+            ).fetchone()
+            rows = [] if run is None else connection.execute(
+                """SELECT evidence_json FROM audit_results
+                   WHERE run_id = ? AND control = 'landing.static_page'""",
+                (run["run_id"],),
+            ).fetchall()
+        metrics = {
+            "generated": float(len(rows)), "preserved": 0.0,
+            "preserved_with_alerts": 0.0, "pending": 0.0, "failure": 0.0,
+            "last_run_ok": float(run["status"] == "PASS") if run else 0.0,
+            "last_run_timestamp_seconds": (
+                datetime.fromisoformat(run["finished_at"]).timestamp() if run else 0.0
+            ),
+            "last_run_duration_seconds": float(run["duration_seconds"] or 0) if run else 0.0,
+        }
+        for row in rows:
+            status = json.loads(row["evidence_json"]).get("preservation_status")
+            if status in metrics:
+                metrics[status] += 1.0
+        return metrics

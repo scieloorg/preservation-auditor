@@ -87,6 +87,17 @@ DOI_METRIC_HELP = {
     "last_success_timestamp_seconds": "Timestamp da ultima auditoria sem DOI invalido.",
 }
 
+LANDING_METRIC_HELP = {
+    "generated": "Landing pages estaticas geradas na ultima execucao.",
+    "preserved": "Datasets publicados com preservacao confirmada.",
+    "preserved_with_alerts": "Datasets preservados que ainda possuem alertas.",
+    "pending": "Datasets cuja verificacao de preservacao esta pendente.",
+    "failure": "Datasets com falha de preservacao identificada.",
+    "last_run_ok": "Indica se a ultima geracao terminou com sucesso.",
+    "last_run_timestamp_seconds": "Timestamp da ultima geracao de landing pages.",
+    "last_run_duration_seconds": "Duracao da ultima geracao de landing pages.",
+}
+
 
 def render_metrics(database: Database) -> str:
     values = database.latest_integrity_metrics()
@@ -138,6 +149,13 @@ def render_metrics(database: Database) -> str:
         metric = f"scielo_preservation_dois_{key}"
         lines.extend((
             f"# HELP {metric} {DOI_METRIC_HELP[key]}",
+            f"# TYPE {metric} gauge",
+            f"{metric} {value}",
+        ))
+    for key, value in database.latest_landing_page_metrics().items():
+        metric = f"scielo_preservation_landings_{key}"
+        lines.extend((
+            f"# HELP {metric} {LANDING_METRIC_HELP[key]}",
             f"# TYPE {metric} gauge",
             f"{metric} {value}",
         ))

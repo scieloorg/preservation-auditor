@@ -316,6 +316,49 @@ Instale `preservation-auditor-dois.service` e `.timer`, configure
 executa semanalmente, segunda-feira as 06:00, com atraso aleatorio de ate 30
 minutos. Os agregados sao expostos como `scielo_preservation_dois_*`.
 
+## Gerar landing pages de preservacao
+
+O comando `generate-landings` produz uma pagina HTML e um `status.json` por DOI
+de dataset presente na ultima auditoria DataCite, alem de um indice. Titulo,
+autores, resumo, licenca, estado do registro e contato sao publicados junto ao
+estado consolidado de preservacao. O HTML e escapado e cada arquivo e publicado
+por substituicao atomica.
+
+Para evitar declarar preservacao com base em inferencia de nomes ou caminhos, o
+vinculo entre DOI e AIP e explicito. Copie `config/landing-links.example.json`
+para `/etc/preservation-auditor/landing-links.json` e registre os pares reais:
+
+```json
+{
+  "links": [
+    {
+      "doi": "10.48331/scielodata.example",
+      "aip_id": "12345678-1234-1234-1234-123456789abc"
+    }
+  ]
+}
+```
+
+Depois da execucao de `check-dois`, gere o site:
+
+```bash
+preservation-auditor generate-landings \
+  --output /var/www/preservation-pages \
+  --links-config /etc/preservation-auditor/landing-links.json \
+  --contact data@scielo.org
+```
+
+Sem vinculo, a pagina e publicada como `Verificacao pendente`. Um baseline com
+tres replicas registradas, mas ainda sem uma nova auditoria local, aparece como
+`Preservado com alertas`. O estado `Preservado` exige integridade local `PASS` e
+tres replicas confirmadas; uma divergencia posterior resulta em
+`Falha de preservacao`. Detalhes internos como bucket, object key, checksum e
+caminho local nao sao publicados.
+
+Instale e habilite `preservation-auditor-landings.service` e `.timer` para gerar
+as paginas diariamente. As metricas usam o prefixo
+`scielo_preservation_landings_*`.
+
 ## Expor metricas
 
 ```bash
@@ -354,7 +397,8 @@ Antes de instala-los:
 5. copie as unidades para `/etc/systemd/system`, recarregue o systemd e habilite
    `preservation-auditor-check.timer`, `preservation-auditor-replicas.timer`,
    `preservation-auditor-bagits.timer`, `preservation-auditor-obsolescence.timer`,
-   `preservation-auditor-dois.timer` e `preservation-auditor-exporter.service`.
+   `preservation-auditor-dois.timer`, `preservation-auditor-landings.timer` e
+   `preservation-auditor-exporter.service`.
 
 Depois que o hook do Archivematica gravar atomicamente um recibo assinado em
 `/var/lib/preservation-auditor/inbox/`, ele pode iniciar a unidade usando somente o

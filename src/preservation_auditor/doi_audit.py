@@ -218,6 +218,35 @@ def _names(attributes: dict) -> list[str]:
     ]
 
 
+def _public_metadata(attributes: dict) -> dict:
+    titles = [
+        str(item["title"]) for item in attributes.get("titles", [])
+        if isinstance(item, dict) and item.get("title")
+    ]
+    rights = [
+        {
+            "name": str(item.get("rights") or item.get("rightsIdentifier") or ""),
+            "uri": str(item.get("rightsUri") or ""),
+        }
+        for item in attributes.get("rightsList", []) if isinstance(item, dict)
+    ]
+    dates = [
+        {"date": str(item.get("date") or ""), "type": str(item.get("dateType") or "")}
+        for item in attributes.get("dates", []) if isinstance(item, dict)
+    ]
+    return {
+        "title": titles[0] if titles else "",
+        "creators": _names(attributes),
+        "abstract": _abstracts(attributes)[0] if _abstracts(attributes) else "",
+        "rights": rights,
+        "dates": dates,
+        "publisher": str(attributes.get("publisher") or ""),
+        "publication_year": attributes.get("publicationYear"),
+        "language": str(attributes.get("language") or ""),
+        "version": str(attributes.get("version") or ""),
+    }
+
+
 def _visible(value: str, page_text: str, minimum: int = 20) -> bool:
     normalized = " ".join(value.lower().split())
     return bool(normalized) and normalized[:minimum] in " ".join(page_text.split())
@@ -234,6 +263,7 @@ def audit_doi(
         "state": attributes.get("state"),
         "is_active": bool(attributes.get("isActive")),
         "resource_type": attributes.get("types", {}).get("resourceTypeGeneral"),
+        "public_metadata": _public_metadata(attributes),
     }
     parent = _parent_doi(attributes)
     evidence["parent_doi"] = parent

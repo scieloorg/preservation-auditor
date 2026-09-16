@@ -12,6 +12,7 @@ from .bagit import BagItAuditor
 from .database import Database
 from .doi_audit import DoiAuditError, DoiAuditor
 from .integrity import IntegrityAuditor
+from .landing_pages import LandingPageError, LandingPageGenerator
 from .metrics import render_metrics, serve
 from .models import Status
 from .obsolescence import ObsolescenceAuditor, ObsolescenceError
@@ -100,6 +101,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("PRESERVATION_DOI_WORKERS", "4")),
     )
     dois.add_argument("--max-dois", type=int, default=0)
+
+    landings = commands.add_parser(
+        "generate-landings", help="Gera landing pages publicas estaticas por DOI"
+    )
+    landings.add_argument(
+        "--output", type=Path,
+        default=os.environ.get("PRESERVATION_LANDING_OUTPUT"),
+    )
+    landings.add_argument(
+        "--links-config", type=Path,
+        default=os.environ.get("PRESERVATION_LANDING_LINKS"),
+    )
+    landings.add_argument(
+        "--contact", default=os.environ.get("PRESERVATION_PUBLIC_CONTACT", "data@scielo.org"),
+    )
     obsolescence.add_argument(
         "--policy", type=Path,
         default=os.environ.get(
@@ -274,6 +290,21 @@ def main() -> None:
         raise SystemExit(
             0 if results and complete and summary["fail"] == 0 else 2
         )
+    if args.command == "generate-landings":
+        if args.output is None:
+            raise SystemExit("output ou PRESERVATION_LANDING_OUTPUT e obrigatorio")
+        try:
+            result = LandingPageGenerator(database, logger).generate(
+                output=args.output, links_config=args.links_config, contact=args.contact,
+            )
+        except (LandingPageError, OSError, RuntimeError) as error:
+            print(json.dumps(
+                {"status": "failure", "error_code": str(error)},
+                ensure_ascii=True, sort_keys=True,
+            ), file=sys.stderr)
+            raise SystemExit(2)
+        print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+        raise SystemExit(0)
     if args.command == "metrics":
         print(render_metrics(database), end="")
         return

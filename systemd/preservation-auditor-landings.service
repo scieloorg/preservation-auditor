@@ -1,0 +1,23 @@
+[Unit]
+Description=SciELO Preservation Auditor static landing page generation
+After=preservation-auditor-dois.service
+
+[Service]
+Type=oneshot
+User=preservation-auditor
+Group=preservation-auditor
+EnvironmentFile=/etc/preservation-auditor/environment
+ExecStart=/opt/preservation-auditor/.venv/bin/preservation-auditor generate-landings --output ${PRESERVATION_LANDING_OUTPUT} --links-config ${PRESERVATION_LANDING_LINKS}
+TimeoutStartSec=1h
+UMask=0022
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+ReadOnlyPaths=/etc/preservation-auditor
+ReadWritePaths=/var/lib/preservation-auditor /var/log/preservation-auditor /var/www/preservation-pages
