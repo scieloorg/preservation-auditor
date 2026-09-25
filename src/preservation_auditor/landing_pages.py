@@ -65,9 +65,16 @@ def load_links(path: Path | None) -> dict[str, str]:
 def _latest_datasets(database: Database) -> list[dict[str, Any]]:
     with database.connect() as connection:
         run = connection.execute(
-            """SELECT run_id, finished_at FROM audit_runs
-               WHERE kind = 'doi' AND finished_at IS NOT NULL
-               ORDER BY finished_at DESC LIMIT 1"""
+            """SELECT runs.run_id, runs.finished_at FROM audit_runs AS runs
+               WHERE runs.kind = 'doi'
+                 AND runs.finished_at IS NOT NULL
+                 AND runs.scan_complete = 1
+                 AND EXISTS (
+                     SELECT 1 FROM audit_results AS results
+                     WHERE results.run_id = runs.run_id
+                       AND results.control = 'doi.landing_page'
+                 )
+               ORDER BY runs.finished_at DESC LIMIT 1"""
         ).fetchone()
         if run is None:
             raise LandingPageError("doi_audit_not_available")

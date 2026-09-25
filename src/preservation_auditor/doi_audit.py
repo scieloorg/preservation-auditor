@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -95,7 +95,10 @@ def _open_json(url: str, timeout: float = 30) -> dict:
     return raw
 
 
-def iter_datacite_dois(prefix: str, page_size: int = 1000) -> Iterable[dict]:
+def iter_datacite_dois(
+    prefix: str, page_size: int = 1000,
+    inventory: dict[str, Any] | None = None,
+) -> Iterable[dict]:
     if not 1 <= page_size <= 1000:
         raise DoiAuditError("invalid_datacite_page_size")
     query = urlencode({
@@ -107,7 +110,11 @@ def iter_datacite_dois(prefix: str, page_size: int = 1000) -> Iterable[dict]:
     url: str | None = "{}?{}".format(DATACITE_API, query)
     seen: set[str] = set()
     observed = 0
-    expected: int | None = None
+    totals: list[int] = []
+    pages = 0
+    if inventory is not None:
+        inventory.clear()
+        inventory.update({"observed": 0, "pages": 0, "complete": False})
     while url:
         parsed = urlparse(url)
         if (
@@ -128,20 +135,39 @@ def iter_datacite_dois(prefix: str, page_size: int = 1000) -> Iterable[dict]:
             or not isinstance(links, dict) or any(not isinstance(item, dict) for item in data)
         ):
             raise DoiAuditError("invalid_datacite_response")
-        if expected is None:
-            try:
-                expected = int(meta["total"])
-            except (KeyError, TypeError, ValueError) as error:
-                raise DoiAuditError("invalid_datacite_response") from error
+        try:
+            current_total = int(meta["total"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise DoiAuditError("invalid_datacite_response") from error
+        if current_total < 0:
+            raise DoiAuditError("invalid_datacite_response")
+        totals.append(current_total)
+        pages += 1
         for item in data:
             observed += 1
+            if inventory is not None:
+                inventory["observed"] = observed
             yield item
+        if inventory is not None:
+            inventory.update({
+                "initial_total": totals[0], "final_total": totals[-1],
+                "min_total": min(totals), "max_total": max(totals),
+                "pages": pages,
+            })
         next_url = links.get("next")
         if next_url is not None and not isinstance(next_url, str):
             raise DoiAuditError("invalid_datacite_response")
         url = next_url or None
-    if expected is None or observed != expected:
-        raise DoiAuditError("datacite_incomplete_inventory")
+    if not totals or not min(totals) <= observed <= max(totals):
+        minimum = min(totals) if totals else -1
+        maximum = max(totals) if totals else -1
+        raise DoiAuditError(
+            "datacite_incomplete_inventory:observed={}:min_total={}:max_total={}".format(
+                observed, minimum, maximum
+            )
+        )
+    if inventory is not None:
+        inventory["complete"] = True
 
 
 def _fetch_landing(doi: str, timeout: float = 30) -> dict:
@@ -394,11 +420,14 @@ class DoiAuditor:
         self.database.create_run(run_id, "doi", datetime.now(timezone.utc).isoformat())
         log_event(self.logger, action="job.doi_check", result="started",
                   resource="doi_prefix", run_id=run_id, extra={"prefix": prefix})
+        inventory: dict[str, Any] = {}
         try:
             records: list[dict] = []
             records_source = (
                 source if source is not None else
-                iter_datacite_dois(prefix, page_size=min(1000, max_dois or 1000))
+                iter_datacite_dois(
+                    prefix, page_size=min(1000, max_dois or 1000), inventory=inventory,
+                )
             )
             for item in records_source:
                 records.append(item)
@@ -442,6 +471,7 @@ class DoiAuditor:
                     "fail": sum(item.status == Status.FAIL for item in results),
                     "unknown": sum(item.status == Status.UNKNOWN for item in results),
                     "scan_complete": complete,
+                    **{"inventory_{}".format(key): value for key, value in inventory.items()},
                 },
             )
             return run_id, results, complete
@@ -453,6 +483,9 @@ class DoiAuditor:
             log_event(
                 self.logger, action="job.doi_check", result="failure",
                 resource="doi_prefix", run_id=run_id,
-                extra={"prefix": prefix, "error_type": type(error).__name__},
+                extra={
+                    "prefix": prefix, "error_type": type(error).__name__,
+                    **{"inventory_{}".format(key): value for key, value in inventory.items()},
+                },
             )
             raise

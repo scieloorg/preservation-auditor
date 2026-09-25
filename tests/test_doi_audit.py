@@ -106,6 +106,7 @@ class DoiAuditTests(unittest.TestCase):
         self.assertIn("Support", " ".join(parser.text))
 
     def test_datacite_cursor_pagination_uses_all_records(self) -> None:
+        inventory = {}
         pages = [
             {
                 "data": [{"id": "one"}], "meta": {"total": 2},
@@ -114,14 +115,40 @@ class DoiAuditTests(unittest.TestCase):
             {"data": [{"id": "two"}], "meta": {"total": 2}, "links": {"next": None}},
         ]
         with patch("preservation_auditor.doi_audit._open_json", side_effect=pages) as fetch:
-            records = list(iter_datacite_dois("10.48331", page_size=1000))
+            records = list(iter_datacite_dois(
+                "10.48331", page_size=1000, inventory=inventory,
+            ))
         self.assertEqual(["one", "two"], [item["id"] for item in records])
+        self.assertEqual({
+            "observed": 2, "pages": 2, "complete": True,
+            "initial_total": 2, "final_total": 2,
+            "min_total": 2, "max_total": 2,
+        }, inventory)
         self.assertIn("page%5Bsize%5D=1000", fetch.call_args_list[0].args[0])
         self.assertIn("page%5Bcursor%5D=1", fetch.call_args_list[0].args[0])
         self.assertEqual(
             "https://api.datacite.org/dois?page%5Bcursor%5D=abc",
             fetch.call_args_list[1].args[0],
         )
+
+    def test_datacite_cursor_accepts_inventory_growth_during_scan(self) -> None:
+        inventory = {}
+        pages = [
+            {
+                "data": [{"id": "one"}], "meta": {"total": 2},
+                "links": {"next": "https://api.datacite.org/dois?page%5Bcursor%5D=abc"},
+            },
+            {
+                "data": [{"id": "two"}, {"id": "three"}], "meta": {"total": 3},
+                "links": {"next": None},
+            },
+        ]
+        with patch("preservation_auditor.doi_audit._open_json", side_effect=pages):
+            records = list(iter_datacite_dois("10.48331", inventory=inventory))
+        self.assertEqual(["one", "two", "three"], [item["id"] for item in records])
+        self.assertEqual(2, inventory["min_total"])
+        self.assertEqual(3, inventory["max_total"])
+        self.assertTrue(inventory["complete"])
 
     def test_datacite_cursor_rejects_incomplete_inventory(self) -> None:
         page = {"data": [{"id": "one"}], "meta": {"total": 2}, "links": {"next": None}}

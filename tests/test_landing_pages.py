@@ -128,6 +128,20 @@ class LandingPageTests(unittest.TestCase):
                 contact="data@scielo.org",
             )
 
+    def test_uses_previous_complete_inventory_after_empty_failed_run(self) -> None:
+        self.database.create_run(
+            "newer-incomplete", "doi", "2026-12-31T00:00:00+00:00",
+        )
+        self.database.finish_run(
+            "newer-incomplete", status="FAIL", scan_complete=False,
+            duration_seconds=1.0,
+        )
+        result = LandingPageGenerator(self.database, self.logger).generate(
+            output=self.root / "fallback-public", links_config=None,
+            contact="data@scielo.org",
+        )
+        self.assertEqual(1, result["generated"])
+
     def test_extracts_only_exact_doi_package_name(self) -> None:
         aip_id = "12345678-1234-1234-1234-123456789abc"
         self.assertEqual(

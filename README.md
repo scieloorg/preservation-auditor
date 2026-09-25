@@ -274,7 +274,10 @@ minutos. Os agregados sao expostos como `scielo_preservation_formats_*`.
 ## Auditar DOIs e landing pages
 
 O comando `check-dois` pagina por cursor todos os registros do prefixo no DataCite, resolve
-cada DOI e valida a landing page final no SciELO Data:
+cada DOI e valida a landing page final no SciELO Data. Como o inventario pode mudar durante
+uma coleta longa, o auditor registra o total informado em cada pagina e aceita a coleta quando
+o numero observado fica entre o menor e o maior total informado. Uma coleta truncada continua
+sendo recusada como `datacite_incomplete_inventory`:
 
 ```bash
 preservation-auditor check-dois --prefix 10.48331 --workers 2
@@ -319,7 +322,8 @@ minutos. Os agregados sao expostos como `scielo_preservation_dois_*`.
 ## Gerar landing pages de preservacao
 
 O comando `generate-landings` produz uma pagina HTML e um `status.json` por DOI
-de dataset presente na ultima auditoria DataCite, alem de um indice. Titulo,
+de dataset presente na ultima auditoria DataCite completa e com resultados, alem de um indice.
+Uma tentativa mais recente incompleta ou vazia nao oculta o ultimo inventario valido. Titulo,
 autores, resumo, licenca, estado do registro e contato sao publicados junto ao
 estado consolidado de preservacao. O HTML e escapado e cada arquivo e publicado
 por substituicao atomica.
