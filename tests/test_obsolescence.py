@@ -9,6 +9,7 @@ from pathlib import Path
 from preservation_auditor.database import Database
 from preservation_auditor.metrics import render_metrics
 from preservation_auditor.obsolescence import (
+    ObsolescenceError,
     ObsolescenceAuditor,
     classify_record,
     load_policy,
@@ -73,6 +74,51 @@ class ObsolescenceTests(unittest.TestCase):
         self.assertEqual("WARNING", result.status.value)
         self.assertEqual("unclassified", result.evidence["risk"])
 
+    def test_empty_file_is_warning_instead_of_unknown(self) -> None:
+        record = self.record("empty.csv", "UNKNOWN")
+        record["filesize"] = 0
+        record["errors"] = "empty source"
+        result = self.classify(record)
+        self.assertEqual("WARNING", result.status.value)
+        self.assertEqual("FORMAT_EMPTY_FILE", result.error_code)
+        self.assertEqual("empty", result.evidence["risk"])
+
+    def test_policy_rejects_duplicate_puid_extension_pair(self) -> None:
+        duplicate = self.root / "duplicate.json"
+        duplicate.write_text(json.dumps({
+            "version": "duplicate",
+            "rules": [
+                {"puid": "fmt/12", "extensions": ["png"], "risk": "minimal",
+                 "reason": "one", "migration_target": ""},
+                {"puid": "fmt/12", "extensions": ["png"], "risk": "low",
+                 "reason": "two", "migration_target": ""},
+            ],
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(ObsolescenceError, "duplicate_format_policy_rule"):
+            load_policy(duplicate)
+
+    def test_versioned_policy_covers_dominant_inventory_formats(self) -> None:
+        policy = Path(__file__).resolve().parents[1] / "config" / "format-policy.json"
+        version, rules = load_policy(policy)
+        self.assertEqual("2026-09-25.1", version)
+        for name, puid, expected in (
+            ("image.jpg", "x-fmt/391", "PASS"),
+            ("document.pdf", "fmt/276", "PASS"),
+            ("dataset.shp", "x-fmt/235", "WARNING"),
+            ("archive.zip", "x-fmt/263", "PASS"),
+            ("image.png", "fmt/12", "PASS"),
+        ):
+            result = classify_record(
+                self.record(name, puid), root=self.root,
+                policy_version=version, rules=rules,
+            )
+            self.assertEqual(expected, result.status.value)
+        suspicious = classify_record(
+            self.record("misnamed.csv", "fmt/2023"), root=self.root,
+            policy_version=version, rules=rules,
+        )
+        self.assertEqual("FORMAT_UNCLASSIFIED", suspicious.error_code)
+
     def test_audit_persists_results_and_exports_metrics(self) -> None:
         report = self.root / "report.json"
         report.write_text(json.dumps({"files": [
@@ -95,6 +141,7 @@ class ObsolescenceTests(unittest.TestCase):
         self.assertIn("scielo_preservation_formats_pass 1.0", metrics)
         self.assertIn("scielo_preservation_formats_warnings 2.0", metrics)
         self.assertIn("scielo_preservation_formats_medium_risk 1.0", metrics)
+        self.assertIn("scielo_preservation_formats_empty 0.0", metrics)
         self.assertIn("scielo_preservation_formats_critical_risk 1.0", metrics)
         self.assertIn("scielo_preservation_formats_last_run_ok 0.0", metrics)
 

@@ -51,6 +51,7 @@ def load_policy(path: Path) -> tuple[str, list[FormatRule]]:
     if not isinstance(rules_raw, list) or not rules_raw:
         raise ObsolescenceError("invalid_format_policy")
     rules: list[FormatRule] = []
+    seen_pairs: set[tuple[str, str]] = set()
     for item in rules_raw:
         try:
             risk = str(item["risk"]).lower()
@@ -62,8 +63,15 @@ def load_policy(path: Path) -> tuple[str, list[FormatRule]]:
             )
         except (KeyError, TypeError) as error:
             raise ObsolescenceError("invalid_format_policy") from error
-        if risk not in RISK_STATUS or not rule.puid or not extensions:
+        if (
+            risk not in RISK_STATUS or not rule.puid or not extensions
+            or any(not extension or extension.startswith(".") for extension in extensions)
+        ):
             raise ObsolescenceError("invalid_format_policy")
+        pairs = {(rule.puid, extension) for extension in extensions}
+        if pairs & seen_pairs:
+            raise ObsolescenceError("duplicate_format_policy_rule")
+        seen_pairs.update(pairs)
         rules.append(rule)
     return version, rules
 
@@ -126,6 +134,12 @@ def classify_record(
         "extension": extension,
         "policy_version": policy_version,
     }
+    if evidence["size_bytes"] == 0:
+        evidence.update({"risk": "empty", "identification_warning": "empty_file"})
+        return AuditResult(
+            "format.obsolescence", "file", resource_id(path), Status.WARNING,
+            "MEDIUM", evidence, "FORMAT_EMPTY_FILE",
+        )
     if record.get("errors") or not matches or all(
         str(item.get("id", "")).upper() == "UNKNOWN" for item in matches
     ):
@@ -261,6 +275,7 @@ class ObsolescenceAuditor:
                     "warnings": sum(item.status == Status.WARNING for item in results),
                     "fail": sum(item.status == Status.FAIL for item in results),
                     "unknown": sum(item.status == Status.UNKNOWN for item in results),
+                    "empty": sum(item.error_code == "FORMAT_EMPTY_FILE" for item in results),
                     "scan_complete": complete,
                 },
             )

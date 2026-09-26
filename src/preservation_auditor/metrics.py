@@ -63,6 +63,7 @@ OBSOLESCENCE_METRIC_HELP = {
     "high_risk": "Arquivos em formatos classificados como alto risco.",
     "critical_risk": "Arquivos em formatos classificados como risco critico.",
     "unclassified": "Arquivos identificados sem regra na politica vigente.",
+    "empty": "Arquivos vazios, sem conteudo suficiente para identificar o formato.",
     "unknown": "Arquivos cujo formato nao foi identificado.",
     "scan_complete": "Indica se todos os payloads foram identificados.",
     "last_run_ok": "Indica se a ultima auditoria nao encontrou risco alto ou critico.",

@@ -512,7 +512,7 @@ class Database:
         metrics = {
             "total": float(len(rows)), "pass": 0.0, "warnings": 0.0,
             "medium_risk": 0.0, "high_risk": 0.0, "critical_risk": 0.0,
-            "unclassified": 0.0,
+            "unclassified": 0.0, "empty": 0.0,
             "unknown": 0.0,
             "scan_complete": float(run["scan_complete"]) if run else 0.0,
             "last_run_ok": float(run["status"] in {"PASS", "WARNING"}) if run else 0.0,
@@ -534,6 +534,8 @@ class Database:
                 metrics["warnings"] += 1.0
             elif row["status"] == "UNKNOWN":
                 metrics["unknown"] += 1.0
+            if row["error_code"] == "FORMAT_EMPTY_FILE":
+                metrics["empty"] += 1.0
             if risk == "medium":
                 metrics["medium_risk"] += 1.0
             elif risk == "high":

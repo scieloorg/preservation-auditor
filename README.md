@@ -256,8 +256,19 @@ preservation-auditor check-obsolescence \
 A politica versionada combina PUID e extensao para evitar ambiguidades. Risco
 `minimal` ou `low` resulta em `PASS`, `medium` em `WARNING` e `high` ou `critical`
 em `FAIL`. Formato identificado sem regra recebe `FORMAT_UNCLASSIFIED`; formato
-nao identificado recebe `UNKNOWN`. O modulo apenas inventaria e classifica: nunca
+nao identificado recebe `UNKNOWN`. Arquivo vazio recebe `FORMAT_EMPTY_FILE` e
+`WARNING`, pois nao ha conteudo suficiente para identificar seu formato, sem tornar
+a cobertura da varredura inconclusiva. A politica rejeita regras duplicadas para a
+mesma combinacao PUID/extensao. O modulo apenas inventaria e classifica: nunca
 converte, renomeia ou modifica o arquivo preservado.
+
+A versao `2026-09-25.1` amplia a cobertura dos formatos observados no SciELO Data,
+incluindo familias PDF, JPEG, TIFF, PNG, ZIP, JSON, codigo-fonte, formatos
+estatisticos e os componentes de Shapefile. Componentes geoespaciais dependentes e
+formatos proprietarios permanecem como risco medio. Combinacoes suspeitas entre
+conteudo e extensao, mesmo quando o PUID e conhecido, continuam sem classificacao.
+Os agregados incluem `scielo_preservation_formats_empty` para acompanhar arquivos
+vazios separadamente.
 
 Copie `config/format-policy.json` para `/etc/preservation-auditor/`, configure
 `PRESERVATION_FORMAT_POLICY` e `PRESERVATION_SIEGFRIED_BIN` no arquivo de ambiente,
